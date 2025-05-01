@@ -227,35 +227,13 @@ if __name__ == "__main__":
     """
     command line args for CTD data:
     
---node-infile
-D:/dvols/graph-eval/ctd_data/nodes-orig.jsonl
---edge-infile
-D:/dvols/graph-eval/ctd_data/edges-orig.jsonl
---data-dir
-D:/dvols/graph-eval
---outfile
-ctd
---lines_per_file
--1
---output_file_count
-0
-    """
+--node-infile D:/dvols/graph-eval/ctd_data/nodes-orig.jsonl --edge-infile D:/dvols/graph-eval/ctd_data/edges-orig.jsonl --data-dir D:/dvols/graph-eval --outfile ctd --lines_per_file 1 --output_file_count 0
 
-    """
     command line args for robokop data:
     
---node-infile
-D:/dvols/graph-eval/robokop_data/nodes.jsonl
---edge-infile
-D:/dvols/graph-eval/robokop_data/edges.jsonl
---data-dir
-D:/dvols/graph-eval
---outfile
-robokop
---lines_per_file
-500000
---output_file_count
-1
+--node-infile D:/dvols/graph-eval/robokop_data/nodes.jsonl --edge-infile D:/dvols/graph-eval/robokop_data/edges.jsonl --data-dir D:/dvols/graph-eval --outfile robokop --lines_per_file 500000 --output_file_count 1
+
+--node-infile ./nodes.jsonl --edge-infile ./edges.jsonl --data-dir ./graph-eval --outfile robokop --lines_per_file 1000 --output_file_count 1
 
     lines_per_file is the number of lines processed in each input file before an output file is created. using -1 will result in all
     input lines in each file are output into 1 output file.

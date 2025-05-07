@@ -6,7 +6,7 @@ from codetiming import Timer
 import json
 
 """
-this code takes the CTD node/edge jsonl files and parses them into a Kuzu DB
+this code takes the node/edge jsonl files and parses them into a Kuzu DB
 using JSON import libraries
 
 powen, 2025-04-22 
@@ -25,7 +25,7 @@ def create_node_table(conn: kuzu.Connection) -> None:
     """
 
     conn.execute("""
-        CREATE NODE TABLE CTDNode(
+        CREATE NODE TABLE Node(
                 id STRING PRIMARY KEY,
                 name STRING,
                 category STRING[],                
@@ -61,8 +61,8 @@ def create_edge_table(conn: kuzu.Connection) -> None:
 
     conn.execute("""
         CREATE REL TABLE
-            CTDEdge(
-                FROM CTDNode TO CTDNode,
+            Edge(
+                FROM Node TO Node,
                 predicate STRING,
                 primary_knowledge_source STRING,
                 publications STRING[],
@@ -86,26 +86,39 @@ def process_node_file(_data_dir, _infile, _outfile):
     :param _outfile:
     :return:
     """
-    with (open(os.path.join(_data_dir, _infile), 'r', encoding='utf-8') as in_file,
-          open(os.path.join(_data_dir, _outfile), 'w', encoding='utf-8') as out_file):
-
+    with (open(os.path.join(_data_dir, _infile), 'r', encoding='utf-8') as in_file, open(os.path.join(_data_dir, _outfile), 'w',
+                                                                                         encoding='utf-8') as out_file):
         d_line = {}
         out_data = []
         line_counter = 0
+        first_record = True
+
+        node_key_map: dict = {'id': 'id', 'category': 'labels'}
+
+        print('Parsing nodes...')
+
+        out_file.write('[')
 
         for line in in_file:
             d_line = json.loads(line)
 
-            out_data.append(json.dumps(d_line, ensure_ascii=True))
+            # out_data.append(json.dumps(d_line, ensure_ascii=True))
 
             line_counter += 1
 
-            # if line_counter > 10000:
-            #     break
+            if first_record:
+                out_file.write(json.dumps(d_line, ensure_ascii=True))
+                first_record = False
+            else:
+                out_file.write(',' + json.dumps(d_line, ensure_ascii=True))
 
-        out_str = ", ".join(out_data)
+            # out_file.flush()
 
-        out_file.write('[' + out_str + ']')
+            # if line_counter > 10000:  #     break
+
+        out_file.write(']')
+
+    return line_counter
 
 
 def process_edge_file(_data_dir, _infile, _outfile):
@@ -117,35 +130,52 @@ def process_edge_file(_data_dir, _infile, _outfile):
     :param _outfile:
     :return:
     """
-    with (open(os.path.join(_data_dir, _infile), 'r', encoding='utf-8') as in_file,
-          open(os.path.join(_data_dir, _outfile), 'w', encoding='utf-8') as out_file):
-
+    with (open(os.path.join(_data_dir, _infile), 'r', encoding='utf-8') as in_file, open(os.path.join(_data_dir, _outfile), 'w',
+                                                                                         encoding='utf-8') as out_file):
         d_line = {}
         out_data = []
         line_counter = 0
+        first_record = True
 
-        edge_key_map = {'subject': 'from', 'object': 'to'}
+        edge_key_map = {'subject': 'from', 'object': 'to', 'predicate': 'label'}
+
+        print('Parsing edges...')
+
+        out_file.write('[')
 
         for line in in_file:
             d_line = json.loads(line)
 
+            line_counter += 1
+
             out_record = {edge_key_map.get(k, k): v for k, v in d_line.items() if k in edge_key_map.keys()}
 
-            d_line.pop('subject', None)
-            d_line.pop('object', None)
+            # d_line.pop('subject', None)
+            # d_line.pop('object', None)
+
+            if d_line.get('publications') is None:
+                d_line['publications'] = []
+            elif  d_line['publications'] is not None and type(d_line['publications']) is not list:
+                d_line['publications'] = [d_line['publications']]
 
             out_record.update(d_line)
 
-            out_data.append(json.dumps(out_record, ensure_ascii=True))
+            if first_record:
+                out_file.write(json.dumps(out_record, ensure_ascii=True))
+                first_record = False
+            else:
+                out_file.write(',' + json.dumps(out_record, ensure_ascii=True))
 
-        out_str = ", ".join(out_data)
+            # out_file.flush()
 
-        out_file.write('[' + out_str + ']')
+        out_file.write(']')
+
+    return line_counter
 
 
-def main(conn: kuzu.Connection, _data_dir, _node_infile, _edge_infile) -> None:
+def parse_data(conn: kuzu.Connection, _data_dir, _node_infile, _edge_infile, _load_db_only) -> None:
     """
-    Loads the node/edge JSON data into the Kuzu DB
+    parses/loads the node/edge JSON data into a Kuzu DB
 
     :param _data_dir:
     :param conn:
@@ -153,54 +183,81 @@ def main(conn: kuzu.Connection, _data_dir, _node_infile, _edge_infile) -> None:
     :param _edge_infile:
     :return:
     """
+    node_count = 0
+    edge_count = 0
+
+    # init the connection for loading
     load_json(conn)
 
-    with Timer(name="nodes", text="CTD Nodes loaded in {:.4f}s"):
+    with Timer(name="nodes", text="Nodes loaded in {:.4f}s"):
         # Nodes
-        create_node_table(conn)
-
-        process_node_file(_data_dir, _node_infile, 'kuzu_node_out.json')
+        if not _load_db_only:
+            node_count = process_node_file(_data_dir, _node_infile, 'kuzu_node_out.json')
+        else:
+            print('Skipped processing node file...')
 
         nf = os.path.join(_data_dir, 'kuzu_node_out.json')
-        nf = str(nf).replace('\\', '/')
+        # nf = str(nf).replace('\\', '/')
 
-        conn.execute(f"COPY CTDNode FROM '{nf}';")
+        create_node_table(conn)
 
-    with Timer(name="edges", text="CTD Edges loaded in {:.4f}s"):
+        print("Loading nodes into the database...")
+
+        conn.execute(f"COPY Node FROM '{nf}';")
+
+    with Timer(name="edges", text="Edges loaded in {:.4f}s"):
         # Edges
-        create_edge_table(conn)
-
-        process_edge_file(_data_dir, _edge_infile, 'kuzu_edge_out.json')
+        if not _load_db_only:
+            edge_count = process_edge_file(_data_dir, _edge_infile, 'kuzu_edge_out.json')
+        else:
+            print('Skipped processing edge files...')
 
         ef = os.path.join(_data_dir, 'kuzu_edge_out.json')
-        ef = str(ef).replace('\\', '/')
+        # ef = str(ef).replace('\\', '/')
 
-        conn.execute(f"COPY CTDEdge FROM '{ef}';")
+        create_edge_table(conn)
 
-    print("Successfully loaded nodes and edges into the DB")
+        print("Loading edges into the database...")
+
+        conn.execute(f"COPY Edge FROM '{ef}';")
+
+    print(f"Successfully loaded {node_count} nodes and {edge_count} edges into the DB.")
 
 
 if __name__ == "__main__":
+    """
+    command line:
+    
+    python3 kuzu_build_graph_json.py --node-infile=nodes-orig.jsonl --edge-infile=edges-orig.jsonl --data-dir=D:/dvols/graph-eval/ctd_data/
+    
+    fastapi pod command line:
+    cd /logs
+           
+    python3 kuzu_build_graph_json.py --node-infile=rk-nodes.jsonl --edge-infile=rk-edges.jsonl --data-dir=graph-eval --load-db-only=true
+    """
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--node-infile', dest='node_infile', type=str, help='Node input file')
     parser.add_argument('--edge-infile', dest='edge_infile', type=str, help='Edge input file')
     parser.add_argument('--data-dir', dest='data_dir', type=str, help='Data directory')
+    parser.add_argument('--load-db-only', dest='load_db_only', type=bool, help='Only load the DB, use existing data')
 
     args = parser.parse_args()
 
-    DB_NAME = "kuzu-ctd-db"
+    DB_NAME = "kuzu-db"
+
+    db_dir: str = os.path.join(args.data_dir, DB_NAME)
 
     # Delete directory each time till we have MERGE FROM available in kuzu
-    shutil.rmtree(DB_NAME, ignore_errors=True)
+    shutil.rmtree(db_dir, ignore_errors=True)
 
     # Create the database
-    db = kuzu.Database(f"./{DB_NAME}")
+    db = kuzu.Database(db_dir)
     connection = kuzu.Connection(db)
 
     try:
-        main(connection, args.data_dir, args.node_infile, args.edge_infile)
+        parse_data(connection, args.data_dir, args.node_infile, args.edge_infile, args.load_db_only)
     except Exception as e:
-        print(e)
+        print(f'Exception parsing: {e}')
     finally:
         connection.close()

@@ -27,13 +27,31 @@ def create_node_table(conn: kuzu.Connection) -> None:
     conn.execute("""
         CREATE NODE TABLE Node(
                 id STRING PRIMARY KEY,
-                name STRING,
-                category STRING[],                
-                equivalent_identifiers STRING[], 
-                NCBITaxon STRING, 
-                information_content STRING,
-                description STRING                
+                labels STRING[],
+                properties JSON,
+                equivalent_identifiers STRING[] 
         )
+        """)
+
+
+def create_edge_table(conn: kuzu.Connection) -> None:
+    """
+    Creates the edge table in kuzu
+
+    :param conn:
+    :return:
+    """
+
+    conn.execute("""
+        CREATE REL TABLE
+            Edge(
+                FROM Node TO Node,
+                label STRING,      
+                id INT64,
+                properties JSON,     
+                knowledge_level STRING,
+                agent_type STRING
+            )
         """)
 
 
@@ -51,32 +69,6 @@ def load_json(conn: kuzu.Connection):
     """)
 
 
-def create_edge_table(conn: kuzu.Connection) -> None:
-    """
-    Creates the edge table in kuzu
-
-    :param conn:
-    :return:
-    """
-
-    conn.execute("""
-        CREATE REL TABLE
-            Edge(
-                FROM Node TO Node,
-                predicate STRING,
-                primary_knowledge_source STRING,
-                publications STRING[],
-                NCBITaxon STRING,
-                description STRING,                
-                knowledge_level STRING,
-                agent_type STRING,
-                object_aspect_qualifier STRING,
-                object_direction_qualifier STRING,
-                qualified_predicate STRING                               
-            )
-        """)
-
-
 def process_node_file(_data_dir, _infile, _outfile):
     """
     parses the node JSON file and creates another JSON file for the Kuzu DB
@@ -91,7 +83,6 @@ def process_node_file(_data_dir, _infile, _outfile):
         d_line = {}
         out_data = []
         line_counter = 0
-        first_record = True
 
         node_key_map: dict = {'id': 'id', 'category': 'labels'}
 
@@ -102,15 +93,24 @@ def process_node_file(_data_dir, _infile, _outfile):
         for line in in_file:
             d_line = json.loads(line)
 
+            # remap the data
+            out_record = {node_key_map.get(k, k): v for k, v in d_line.items() if k in node_key_map.keys()}
+
+            # save all properties and the record type
+            attributes = {"properties": {k: v for k, v in d_line.items()}}
+
+            # save the remapped data
+            out_record.update(attributes)
+
             # out_data.append(json.dumps(d_line, ensure_ascii=True))
 
-            line_counter += 1
-
-            if first_record:
-                out_file.write(json.dumps(d_line, ensure_ascii=True))
+            if line_counter == 0:
+                out_file.write(json.dumps(out_record, ensure_ascii=True))
                 first_record = False
             else:
-                out_file.write(',' + json.dumps(d_line, ensure_ascii=True))
+                out_file.write(',' + json.dumps(out_record, ensure_ascii=True))
+
+            line_counter += 1
 
             # out_file.flush()
 
@@ -135,7 +135,6 @@ def process_edge_file(_data_dir, _infile, _outfile):
         d_line = {}
         out_data = []
         line_counter = 0
-        first_record = True
 
         edge_key_map = {'subject': 'from', 'object': 'to', 'predicate': 'label'}
 
@@ -146,9 +145,13 @@ def process_edge_file(_data_dir, _infile, _outfile):
         for line in in_file:
             d_line = json.loads(line)
 
-            line_counter += 1
-
             out_record = {edge_key_map.get(k, k): v for k, v in d_line.items() if k in edge_key_map.keys()}
+
+            # save all property attributes, id and the record type
+            attributes = {"id": line_counter, "properties": {k: v for k, v in d_line.items()}}
+
+            # save the remapped data
+            out_record.update(attributes)
 
             # d_line.pop('subject', None)
             # d_line.pop('object', None)
@@ -160,11 +163,13 @@ def process_edge_file(_data_dir, _infile, _outfile):
 
             out_record.update(d_line)
 
-            if first_record:
+            if line_counter == 0:
                 out_file.write(json.dumps(out_record, ensure_ascii=True))
                 first_record = False
             else:
                 out_file.write(',' + json.dumps(out_record, ensure_ascii=True))
+
+            line_counter += 1
 
             # out_file.flush()
 
@@ -189,7 +194,7 @@ def parse_data(conn: kuzu.Connection, _data_dir, _node_infile, _edge_infile, _lo
     # init the connection for loading
     load_json(conn)
 
-    with Timer(name="nodes", text="Nodes loaded in {:.4f}s"):
+    with Timer(name="nodes", text="Nodes parsed/loaded in {:.4f}s"):
         # Nodes
         if not _load_db_only:
             node_count = process_node_file(_data_dir, _node_infile, 'kuzu_node_out.json')
@@ -205,7 +210,7 @@ def parse_data(conn: kuzu.Connection, _data_dir, _node_infile, _edge_infile, _lo
 
         conn.execute(f"COPY Node FROM '{nf}';")
 
-    with Timer(name="edges", text="Edges loaded in {:.4f}s"):
+    with Timer(name="edges", text="Edges parsed/loaded in {:.4f}s"):
         # Edges
         if not _load_db_only:
             edge_count = process_edge_file(_data_dir, _edge_infile, 'kuzu_edge_out.json')

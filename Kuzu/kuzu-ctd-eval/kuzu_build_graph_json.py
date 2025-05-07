@@ -158,7 +158,7 @@ def process_edge_file(_data_dir, _infile, _outfile):
 
             if d_line.get('publications') is None:
                 d_line['publications'] = []
-            elif  d_line['publications'] is not None and type(d_line['publications']) is not list:
+            elif d_line['publications'] is not None and type(d_line['publications']) is not list:
                 d_line['publications'] = [d_line['publications']]
 
             out_record.update(d_line)
@@ -178,14 +178,15 @@ def process_edge_file(_data_dir, _infile, _outfile):
     return line_counter
 
 
-def parse_data(conn: kuzu.Connection, _data_dir, _node_infile, _edge_infile, _load_db_only) -> None:
+def parse_data(conn: kuzu.Connection, _node_infile, _edge_infile, _data_dir, _load_db_only) -> None:
     """
     parses/loads the node/edge JSON data into a Kuzu DB
 
-    :param _data_dir:
     :param conn:
     :param _node_infile:
     :param _edge_infile:
+    :param _data_dir:
+    :param _load_db_only:
     :return:
     """
     node_count = 0
@@ -261,7 +262,7 @@ if __name__ == "__main__":
     connection = kuzu.Connection(db)
 
     try:
-        parse_data(connection, args.data_dir, args.node_infile, args.edge_infile, args.load_db_only)
+        parse_data(connection, args.node_infile, args.edge_infile, args.data_dir, args.load_db_only)
     except Exception as e:
         print(f'Exception parsing: {e}')
     finally:

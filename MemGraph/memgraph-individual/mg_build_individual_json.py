@@ -7,7 +7,7 @@ from codetiming import Timer
 """
 Methods to parse ORION data and create an import file to load into a MemGraph DB.
 
-    example node input record
+    example node input record (CTD)
     {
         "id":"UNII:7PK6VC94OU",
         "name":"4-Methylaminorex",
@@ -29,41 +29,27 @@ Methods to parse ORION data and create an import file to load into a MemGraph DB
         ]
     }
 
-    example edge input record
+    example edge input record (CTD)
     {
-      "subject":"UNII:7PK6VC94OU","predicate":"biolink:affects","object":"NCBIGene:6531",
-      "primary_knowledge_source":"infores:ctd","description":"decreases activity of",
-      "NCBITaxon":"9606","publications":["PMID:30776375"],"knowledge_level":"knowledge_assertion",
-      "agent_type":"manual_agent","object_aspect_qualifier":"activity","object_direction_qualifier":"decreased",
+      "subject":"UNII:7PK6VC94OU",
+      "predicate":"biolink:affects",
+      "object":"NCBIGene:6531",
+      "primary_knowledge_source":"infores:ctd",
+      "description":"decreases activity of",
+      "NCBITaxon":"9606",
+      "publications":["PMID:30776375"],
+      "knowledge_level":"knowledge_assertion",
+      "agent_type":"manual_agent",
+      "object_aspect_qualifier":"activity",
+      "object_direction_qualifier":"decreased",
       "qualified_predicate":"biolink:causes"
     }        
         
-note: the procedure to create/import data is to: 
-  - create the json file
-    mg_build_individual_json.py
-    --node-infile=nodes-orig.jsonl
-    --edge-infile=edges-orig.jsonl
-    --data-dir=D:/dvols/graph-eval/ctd_data
-    --outfile=ctd-nodes.json
-    --type=node
-    
-  - copy the json file to the memgraph pod
-    k -n translator-exp --retries=10 cp merge.json translator-memgraph-0:/var/lib/memgraph/databases/memgraph/merges.json
-
   - execute the following command in the memgraph UI 
-    CALL import_util.json("/var/lib/memgraph/databases/memgraph/merge.json");
+    CALL import_util.json("/omnicorp/graph-eval-<input file name>");
 
   - confirm data loaded properly
     see cypher-cmds.txt for more commands
-
- CSV: --node-infile=nodes-orig.jsonl --edge-infile=edges-orig.jsonl --data-dir=D:/dvols/graph-eval/ctd_data 
---outfile=nodes.json --type=csv
-
-Nodes: --node-infile=nodes-orig.jsonl --edge-infile=edges-orig.jsonl --data-dir=D:/dvols/graph-eval/ctd_data 
---outfile=nodes.json --type=node
-
-Edges: --node-infile=nodes-orig.jsonl --edge-infile=edges-orig.jsonl --data-dir=D:/dvols/graph-eval/ctd_data
---outfile=edges.json --type=edge      
     
 to make json pretty:
     cat <created json file>.json | jq >> <created json file>-pretty.json && head -40 <created json file>-pretty.json
@@ -71,10 +57,6 @@ to make json pretty:
 to remove 2 chars at the beginning of the file:
     cut -c 3- /mnt/d/dvols/graph-eval/ctd-merge-all-lines-file0.json > output.txt
     printf '%s%s' "[" "$(cat output.txt)" > /mnt/d/dvols/graph-eval/ctd-merge-all-lines-file0.json
-    
-to view beginning and ending of a file:
-    head -c 50 <file name>
-    tail -c 50 <file name>
     
 robokop data stats:    
     (venv-3.10) [powen@compute-5-2 ~]$ python3 mg_build_merge_json.py --node-infile rk-nodes.jsonl --edge-infile rk-edges.jsonl 
@@ -160,7 +142,7 @@ def get_csv_field_names(_data_dir, _infile) -> set:
     return ret_val
 
 
-def process_edge_file(_data_dir, _infile, _outfile):
+def process_edge_file(_data_dir, _infile, _outfile, _max_items):
     """
     process the edge file.
 
@@ -176,112 +158,141 @@ def process_edge_file(_data_dir, _infile, _outfile):
 
         # init the local variables
         d_line: dict = {}
-        edge_data: list = []
+        first_record = True
 
         # define the way the edges are remapped fpr memgraph
         edge_key_map: dict = {'subject': 'start', 'object': 'end', 'predicate': 'label'}
 
         # init the edge counter
-        final_edge_count: int = 0
+        total_edge_count: int = 0
+
+        # load a file iterator for the edges and nodes
+        edge_file_iter: iter = iter(in_file)
+
+        # start the output
+        out_file.write('[')
+
+        print('\nParsing data for edge output file...')
 
         # setup a timer
         with Timer(name="edges", text="\tEdges parsed in {:.3f}s"):
-            # for each line in the file
-            for line in in_file:
-                # load the JSON item
-                d_line = json.loads(line)
+            try:
+                # for each line in the file
+                while True:
+                    # get a line of data
+                    line = next(edge_file_iter)
 
-                """
-                target MemGraph edge record contains:
-                  {
-                      "id": <>,
-                      "start": <>,
-                      "end": <>,
-                      "label": <>,
-                      "properties": {},
-                      "type": "relationship"
-                  },
-    
-                """
+                    # load the JSON item
+                    d_line = json.loads(line)
 
-                # init the base record info
-                base: dict = {"type": "relationship", "id": final_edge_count}
+                    # remap the data
+                    out_record = {edge_key_map.get(k, k): v for k, v in d_line.items() if k in edge_key_map.keys()}
 
-                # remap the data
-                out_record: dict = {edge_key_map.get(k, k): v for k, v in d_line.items() if k in edge_key_map.keys()}
+                    # save all property attributes, id and the record type
+                    attributes = {"type": "relationship", "id": total_edge_count, "properties": {k: v for k, v in d_line.items()}}
 
-                # save all attributes in the property element
-                properties: dict = {"properties": {k: v for k, v in d_line.items() if k not in edge_key_map.keys()}}
+                    # save the remapped data
+                    out_record.update(attributes)
 
-                # save the remapped data
-                out_record.update(base)
-                out_record.update(properties)
+                    # first time in no leading comma
+                    if first_record:
+                        # save the data in the output array and default non-ascii characters
+                        out_file.write(json.dumps(out_record, ensure_ascii=True))
+                        first_record = False
+                    else:
+                        # save the data in the output array and default non-ascii characters
+                        out_file.write(',' + json.dumps(out_record, ensure_ascii=True))
 
-                # save the updated item and remove non-ascii chars
-                edge_data.append(json.dumps(out_record, ensure_ascii=True))
+                    # increment the edge counter
+                    total_edge_count += 1
 
-                # increment the edge counters
-                final_edge_count += 1
+                    # testing only, terminate if this amount has been reached
+                    if total_edge_count == _max_items:
+                        # end the file
+                        out_file.write(']')
+                        break
 
-            # save the data as a string
-            out_str = ",".join(edge_data)
+            except StopIteration:
+                # end the file
+                out_file.write(']')
 
-            # make the data look like an array
-            out_file.write('[' + out_str + ']')
+                # flush the output file data to disk
+                out_file.flush()
 
-            print('\nFinal Edge stats: {final_edge_count} node(s)'.format(final_edge_count=final_edge_count))
+            print('\nFinal Edge stats: {total_edge_count} node(s)'.format(total_edge_count=total_edge_count))
 
 
-def process_node_file(_data_dir, _infile, _outfile):
+def process_node_file(_data_dir, _infile, _outfile, _max_items):
     """
         process the node file.
 
         this method creates import data that uses json_util.load_from_path() to load a single JSON file.
-
-        after processing copy up to the MemGraph server pod
-            k -n translator-exp --retries=10 cp nodes.json translator-memgraph-0:/var/lib/memgraph/databases/memgraph/nodes.json
     """
     # open the data files
     with (open(os.path.join(_data_dir, _infile), 'r', encoding='utf-8') as in_file,
           open(os.path.join(_data_dir, _outfile), 'w', encoding='utf-8') as out_file):
 
+        # start the output
+        out_file.write('[')
+
         # init the local variables
         d_line: dict = {}
-        node_data: list = []
+        first_record = True
+
+        # create a map for the node data
+        node_key_map: dict = {'id': 'id', 'category': 'labels'}
+
+        # load a file iterator for the edges and nodes
+        node_file_iter: iter = iter(in_file)
 
         # init node counter
         total_node_count: int = 0
 
-        # setup a timer
         with Timer(name="nodes", text="\tNodes parsed in {:.3f}s"):
-            # for each line in the file
-            for line in in_file:
-                """
-                node input data contains:
-                
-                {
-                    "id":"UNII:7PK6VC94OU",
-                    "name":"4-Methylaminorex",
-                    "category":["biolink:SmallMolecule","biolink:MolecularEntity","biolink:ChemicalEntity","biolink:PhysicalEssence","biolink:ChemicalOrDrugOrTreatment","biolink:ChemicalEntityOrGeneOrGeneProduct","biolink:ChemicalEntityOrProteinOrPolypeptide","biolink:NamedThing","biolink:PhysicalEssenceOrOccurrent"],
-                    "equivalent_identifiers":["UNII:7PK6VC94OU","PUBCHEM.COMPOUND:92196","DRUGBANK:DB01447","MESH:C000081","CAS:3568-94-3","HMDB:HMDB0246502","INCHIKEY:LJQBMYDFWFGESC-UHFFFAOYSA-N","UMLS:C0097249"]}
-                """
+            try:
+                # until we reach the desired number of lines processed
+                while True:
+                    # get a line of data
+                    line = next(node_file_iter)
 
-                # load the JSON item
-                d_line = json.loads(line)
+                    # load the JSON item
+                    d_line = json.loads(line)
 
-                # save the updated item and remove non-ascii chars
-                node_data.append(json.dumps(d_line, ensure_ascii=True))
+                    # remap the data
+                    out_record = {node_key_map.get(k, k): v for k, v in d_line.items() if k in node_key_map.keys()}
 
-                # increment the total number of nodes counter
-                total_node_count += 1
+                    # save all properties and the record type
+                    attributes = {"type": "node", "properties": {k: v for k, v in d_line.items()}}
 
-            # save the data as a string
-            out_str = ",".join(node_data)
+                    # save the remapped data
+                    out_record.update(attributes)
 
-            # make the data look like an array
-            out_file.write('[' + out_str + ']')
+                    # first time in no leading comma
+                    if first_record:
+                        # save the data in the output array and default non-ascii characters
+                        out_file.write(json.dumps(out_record, ensure_ascii=True))
 
-        print('\nFinal Node stats: {final_node_count} node(s)'.format(final_node_count=total_node_count))
+                        first_record = False
+                    else:
+                        # save the data in the output array and default non-ascii characters
+                        out_file.write(',' + json.dumps(out_record, ensure_ascii=True))
+
+                    # increment the node counter
+                    total_node_count += 1
+
+                    # testing only, terminate if this amount has been reached
+                    if total_node_count == _max_items:
+                        # end the file
+                        out_file.write(']')
+                        break
+
+            except StopIteration:
+                out_file.write(']')
+
+                # flush the output file data to disk
+                out_file.flush()
+
+        print('\nFinal Node stats: {total_node_count} node(s)'.format(total_node_count=total_node_count))
 
 
 if __name__ == "__main__":
@@ -292,6 +303,7 @@ if __name__ == "__main__":
     parser.add_argument('--edge-infile', dest='edge_infile', type=str, help='Edge input file')
     parser.add_argument('--data-dir', dest='data_dir', type=str, help='Data directory')
     parser.add_argument('--outfile', dest='outfile', type=str, help='Output file')
+    parser.add_argument('--max-items', dest='max_items', type=str, help='Output file')
     parser.add_argument('--type', dest='type', type=str, help='run type')
 
     args = parser.parse_args()
@@ -301,11 +313,11 @@ if __name__ == "__main__":
 
     # process the node file
     if run_type == 'NODE':
-        process_node_file(args.data_dir, args.node_infile, args.outfile)
+        process_node_file(args.data_dir, args.node_infile, args.outfile, args.max_items)
 
     # process the edge file
     elif run_type == 'EDGE':
-        process_edge_file(args.data_dir, args.edge_infile, args.outfile)
+        process_edge_file(args.data_dir, args.edge_infile, args.outfile, args.max_items)
     else:
         print('Unknown or missing processing type.')
 

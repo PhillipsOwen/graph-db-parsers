@@ -178,7 +178,7 @@ def process_edge_file(_data_dir, _infile, _outfile):
     return line_counter
 
 
-def parse_data(conn: kuzu.Connection, _node_infile, _edge_infile, _data_dir, _load_db_only) -> None:
+def parse_data(conn: kuzu.Connection, _node_infile, _edge_infile, _data_dir, _outfile, _load_db_only) -> None:
     """
     parses/loads the node/edge JSON data into a Kuzu DB
 
@@ -186,6 +186,7 @@ def parse_data(conn: kuzu.Connection, _node_infile, _edge_infile, _data_dir, _lo
     :param _node_infile:
     :param _edge_infile:
     :param _data_dir:
+    :param _outfile:
     :param _load_db_only:
     :return:
     """
@@ -195,14 +196,14 @@ def parse_data(conn: kuzu.Connection, _node_infile, _edge_infile, _data_dir, _lo
     # init the connection for loading
     load_json(conn)
 
-    with Timer(name="nodes", text="Nodes parsed/loaded in {:.4f}s"):
+    with Timer(name="nodes", text="Nodes parsed/loaded in {:.2f}s"):
         # Nodes
         if not _load_db_only:
-            node_count = process_node_file(_data_dir, _node_infile, 'kuzu_node_out.json')
+            node_count = process_node_file(_data_dir, _node_infile, _outfile + '-nodes.json')
         else:
-            print('Skipped processing node file...')
+            print('Skipped processing input node file...')
 
-        nf = os.path.join(_data_dir, 'kuzu_node_out.json')
+        nf = os.path.join(_data_dir, _outfile + '-nodes.json')
         # nf = str(nf).replace('\\', '/')
 
         create_node_table(conn)
@@ -211,14 +212,14 @@ def parse_data(conn: kuzu.Connection, _node_infile, _edge_infile, _data_dir, _lo
 
         conn.execute(f"COPY Node FROM '{nf}';")
 
-    with Timer(name="edges", text="Edges parsed/loaded in {:.4f}s"):
+    with Timer(name="edges", text="Edges parsed/loaded in {:.2f}s"):
         # Edges
         if not _load_db_only:
-            edge_count = process_edge_file(_data_dir, _edge_infile, 'kuzu_edge_out.json')
+            edge_count = process_edge_file(_data_dir, _edge_infile, _outfile + '-edges.json')
         else:
-            print('Skipped processing edge files...')
+            print('Skipped processing input edge file...')
 
-        ef = os.path.join(_data_dir, 'kuzu_edge_out.json')
+        ef = os.path.join(_data_dir, _outfile + '-edges.json')
         # ef = str(ef).replace('\\', '/')
 
         create_edge_table(conn)
@@ -239,20 +240,19 @@ if __name__ == "__main__":
     fastapi pod command line:
     cd /logs
            
-    python3 kuzu_build_graph_json.py --node-infile=rk-nodes.jsonl --edge-infile=rk-edges.jsonl --data-dir=graph-eval --load-db-only=true
+    python3 kuzu_build_graph_json.py --node-infile=rk-nodes.jsonl --edge-infile=rk-edges.jsonl --data-dir=graph-eval <--load-db-only>
     """
     parser = argparse.ArgumentParser()
 
     parser.add_argument('--node-infile', dest='node_infile', type=str, help='Node input file')
     parser.add_argument('--edge-infile', dest='edge_infile', type=str, help='Edge input file')
     parser.add_argument('--data-dir', dest='data_dir', type=str, help='Data directory')
+    parser.add_argument('--outfile', dest='outfile', type=str, help='Output file')
     parser.add_argument('--load-db-only', dest='load_db_only', type=bool, help='Only load the DB, use existing data')
 
     args = parser.parse_args()
 
-    DB_NAME = "kuzu-db"
-
-    db_dir: str = os.path.join(args.data_dir, DB_NAME)
+    db_dir: str = os.path.join(args.data_dir, str(args.outfile))
 
     # Delete directory each time till we have MERGE FROM available in kuzu
     shutil.rmtree(db_dir, ignore_errors=True)
@@ -262,7 +262,7 @@ if __name__ == "__main__":
     connection = kuzu.Connection(db)
 
     try:
-        parse_data(connection, args.node_infile, args.edge_infile, args.data_dir, args.load_db_only)
+        parse_data(connection, args.node_infile, args.edge_infile, args.data_dir, args.outfile, args.load_db_only)
     except Exception as e:
         print(f'Exception parsing: {e}')
     finally:

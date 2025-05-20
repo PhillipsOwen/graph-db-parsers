@@ -2,6 +2,7 @@ import os
 import argparse
 import json
 import csv
+import re
 from codetiming import Timer
 
 """
@@ -140,6 +141,113 @@ def get_csv_field_names(_data_dir, _infile) -> set:
 
     # return the keys
     return ret_val
+
+
+def process_csv_header(_data_dir, _infile):
+    """
+    parses the robokop csv header line and creates a Memgraph LOAD CSV script
+
+    note that this expects the header from the nodes.temp_csv and edges.temp.csv file.
+
+    the load csv command for nodes is:
+    -------------------------------------
+
+    load csv from "/var/log/memgraph/ctd-nodes.csv" with header as row
+    create (n: Node
+        {
+            <col_name>: <optional to some type>(row.<csv_col_name>),
+            ...
+        })
+    with n
+        match (n: Node)
+        set n: n.category;
+
+    the load csv command for edges is:
+    -------------------------------------
+
+    load csv from "/var/log/memgraph/ctd-edges.csv" with header as row
+    with row
+      match (a: Node {id: row.subject}), (b: Node {id: row.object})
+      create (a)-
+        [e: row.predicate
+          {
+            <col_name>: <optional: to some type>(row.<csv_col_name>),
+            ...
+          }
+        ]->(b);
+
+    :param _data_dir:
+    :param _infile:
+    :return:
+    """
+    with open(os.path.join(_data_dir, _infile), 'r', encoding='utf-8') as in_file:
+        # load a file iterator for the edges and nodes
+        file_iter: iter = iter(in_file)
+
+        array_split_char = ';'
+
+        ret_val: str = ''
+
+        try:
+            # for each line in the file
+            while True:
+                # get a line of data
+                cols = next(file_iter)
+
+                cols = cols.split('\t')
+
+                print('Number of columns in', os.path.join(_data_dir, _infile), 'to process: ', len(cols))
+
+                for col in cols:
+                    ret_val += get_conversion(col, array_split_char)
+
+                # only process the first header line
+                raise StopIteration
+
+        except StopIteration:
+            ret_val = '{\n' + ret_val[:-2] + '\n}'
+            print(ret_val)
+
+
+def get_conversion(column_name: str, array_split_char: str) -> str:
+    """
+    Note that the input data is from the original ORION column header. this data is in the format <data name>:<data type> and
+    is used to convert the data in the memgraph import query.
+
+    :param column_name:
+    :param array_split_char:
+    :return:
+    """
+    # if column_name.find('.') > 0:
+    #     return ''
+
+    col_items = column_name.strip().split(':')
+
+    ret_val: str = ''  # '//' if col_items[0].find('.') > 0 else ''
+
+    target_col_name = ":".join(col_items[0: -1])
+
+    target_col_name = re.sub(r'[^A-Za-z0-9_]', '_', target_col_name)
+
+    match col_items[-1]:
+        case 'END_ID' | 'START_ID'| 'TYPE' | 'string' | 'ID' | 'int':
+            ret_val += f'{target_col_name}: row.{target_col_name}'
+        case 'boolean':
+            ret_val += f'{target_col_name}: toBoolean(row.{target_col_name})'
+        case 'float':
+            ret_val += f'{target_col_name}: toFloat(row.{target_col_name})'
+        case 'float[]':
+            # WITH split('1;2;3;4;5', ';') AS stringList UNWIND stringList AS str WITH toFloat(str) AS floatValue RETURN COLLECT(floatValue)
+            # AS floatList
+            ret_val += f"{target_col_name}:  WITH split(row.{target_col_name}, '{array_split_char}') AS strList UNWIND strList AS str WITH toFloat(str) AS floatValue RETURN COLLECT(floatValue)"
+        # case 'int':
+        #     ret_val += f'{target_col_name}: toInteger({target_col_name})'
+        case 'string[]' | 'LABEL':
+            ret_val += f"{target_col_name}: split(row.{target_col_name}, '{array_split_char}')"
+        case _:
+            ret_val = f"ERROR: No data type recognised for {column_name}"
+
+    return '\t' + ret_val + ',\n'
 
 
 def process_edge_file(_data_dir, _infile, _outfile, _max_items):
@@ -318,6 +426,10 @@ if __name__ == "__main__":
     # process the edge file
     elif run_type == 'EDGE':
         process_edge_file(args.data_dir, args.edge_infile, args.outfile, args.max_items)
+
+    elif run_type == 'COLHDR':
+        node_hdr = process_csv_header(args.data_dir, args.node_infile)
+        edge_hdr = process_csv_header(args.data_dir, args.edge_infile)
     else:
         print('Unknown or missing processing type.')
 

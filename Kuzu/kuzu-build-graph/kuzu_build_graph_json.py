@@ -4,6 +4,7 @@ import argparse
 import kuzu
 from codetiming import Timer
 import json
+from common.logger import LoggingUtil
 
 """
 this code takes the node/edge jsonl files and parses them into a Kuzu DB
@@ -11,6 +12,11 @@ using JSON import libraries
 
 powen, 2025-04-22 
 """
+# get the log level and directory from the environment.
+log_level, log_path = LoggingUtil.prep_for_logging()
+
+# create a logger
+logger = LoggingUtil.init_logging("kuzu_build_graph_json", level=log_level, line_format='medium', log_file_path=log_path)
 
 # the location of this file
 test_dir = os.path.dirname(os.path.abspath(__file__))
@@ -86,7 +92,7 @@ def process_node_file(_data_dir, _infile, _outfile):
 
         node_key_map: dict = {'id': 'id', 'category': 'labels'}
 
-        print('Parsing nodes...')
+        logger.debug('Parsing nodes...')
 
         out_file.write('[')
 
@@ -138,7 +144,7 @@ def process_edge_file(_data_dir, _infile, _outfile):
 
         edge_key_map = {'subject': 'from', 'object': 'to', 'predicate': 'label'}
 
-        print('Parsing edges...')
+        logger.debug('Parsing edges...')
 
         out_file.write('[')
 
@@ -201,14 +207,14 @@ def parse_data(conn: kuzu.Connection, _node_infile, _edge_infile, _data_dir, _ou
         if not _load_db_only:
             node_count = process_node_file(_data_dir, _node_infile, _outfile + '-nodes.json')
         else:
-            print('Skipped processing input node file...')
+            logger.debug('Skipped processing input node file...')
 
         nf = os.path.join(_data_dir, _outfile + '-nodes.json')
         # nf = str(nf).replace('\\', '/')
 
         create_node_table(conn)
 
-        print("Loading nodes into the database...")
+        logger.debug("Loading nodes into the database...")
 
         conn.execute(f"COPY Node FROM '{nf}';")
 
@@ -217,18 +223,18 @@ def parse_data(conn: kuzu.Connection, _node_infile, _edge_infile, _data_dir, _ou
         if not _load_db_only:
             edge_count = process_edge_file(_data_dir, _edge_infile, _outfile + '-edges.json')
         else:
-            print('Skipped processing input edge file...')
+            logger.debug('Skipped processing input edge file...')
 
         ef = os.path.join(_data_dir, _outfile + '-edges.json')
         # ef = str(ef).replace('\\', '/')
 
         create_edge_table(conn)
 
-        print("Loading edges into the database...")
+        logger.debug("Loading edges into the database...")
 
         conn.execute(f"COPY Edge FROM '{ef}';")
 
-    print(f"Successfully loaded {node_count} nodes and {edge_count} edges into the DB.")
+    logger.debug(f"Successfully loaded %s nodes and %s edges into the DB.", node_count, edge_count)
 
 
 if __name__ == "__main__":
@@ -264,6 +270,6 @@ if __name__ == "__main__":
     try:
         parse_data(connection, args.node_infile, args.edge_infile, args.data_dir, args.outfile, args.load_db_only)
     except Exception as e:
-        print(f'Exception parsing: {e}')
+        logger.exception(f'Exception parsing')
     finally:
         connection.close()

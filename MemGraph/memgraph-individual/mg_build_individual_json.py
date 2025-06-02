@@ -4,6 +4,14 @@ import json
 import csv
 import re
 from codetiming import Timer
+from common.logger import LoggingUtil
+
+# get the log level and directory from the environment.
+log_level, log_path = LoggingUtil.prep_for_logging()
+
+# create a logger
+logger = LoggingUtil.init_logging("mg_build_individual_json", level=log_level, line_format='medium', log_file_path=log_path)
+
 
 """
 Methods to parse ORION data and create an import file to load into a MemGraph DB.
@@ -143,7 +151,7 @@ def get_csv_field_names(_data_dir, _infile) -> set:
     return ret_val
 
 
-def process_csv_header(_data_dir, _infile):
+def process_csv_header(_data_dir, _infile) -> str:
     """
     parses the robokop csv header line and creates a Memgraph LOAD CSV script
 
@@ -187,6 +195,7 @@ def process_csv_header(_data_dir, _infile):
         array_split_char = ';'
 
         ret_val: str = ''
+        csv_hdr: list = []
 
         try:
             # for each line in the file
@@ -194,19 +203,29 @@ def process_csv_header(_data_dir, _infile):
                 # get a line of data
                 cols = next(file_iter)
 
+                # split the line by the delimiter character
                 cols = cols.split('\t')
 
-                print('Number of columns in', os.path.join(_data_dir, _infile), 'to process: ', len(cols))
-
+                # go through each column header element (<name>:<type>)
                 for col in cols:
-                    ret_val += get_conversion(col, array_split_char)
+                    val = get_conversion(col, array_split_char)
+                    ret_val += val
+
+                    csv_hdr.append(val.strip().split(':')[0])
 
                 # only process the first header line
                 raise StopIteration
 
         except StopIteration:
+            logger.debug('Number of columns in %s, to process: %s', os.path.join(_data_dir, _infile), len(cols))
+
+            print(','.join(csv_hdr))
+
+            # finish up the header
             ret_val = '{\n' + ret_val[:-2] + '\n}'
             print(ret_val)
+
+        return ret_val
 
 
 def get_conversion(column_name: str, array_split_char: str) -> str:
@@ -218,32 +237,27 @@ def get_conversion(column_name: str, array_split_char: str) -> str:
     :param array_split_char:
     :return:
     """
-    # if column_name.find('.') > 0:
-    #     return ''
-
     col_items = column_name.strip().split(':')
-
-    ret_val: str = ''  # '//' if col_items[0].find('.') > 0 else ''
 
     target_col_name = ":".join(col_items[0: -1])
 
     target_col_name = re.sub(r'[^A-Za-z0-9_]', '_', target_col_name)
 
+    ret_val: str = f'{target_col_name}: '
+
     match col_items[-1]:
-        case 'END_ID' | 'START_ID'| 'TYPE' | 'string' | 'ID' | 'int':
-            ret_val += f'{target_col_name}: row.{target_col_name}'
+        case 'END_ID' | 'START_ID'| 'TYPE' | 'string' | 'ID':
+            ret_val += f'row.{target_col_name}'
         case 'boolean':
-            ret_val += f'{target_col_name}: toBoolean(row.{target_col_name})'
+            ret_val += f'toBoolean(row.{target_col_name})'
         case 'float':
-            ret_val += f'{target_col_name}: toFloat(row.{target_col_name})'
+            ret_val += f'toFloat(row.{target_col_name})'
         case 'float[]':
-            # WITH split('1;2;3;4;5', ';') AS stringList UNWIND stringList AS str WITH toFloat(str) AS floatValue RETURN COLLECT(floatValue)
-            # AS floatList
-            ret_val += f"{target_col_name}:  WITH split(row.{target_col_name}, '{array_split_char}') AS strList UNWIND strList AS str WITH toFloat(str) AS floatValue RETURN COLLECT(floatValue)"
-        # case 'int':
-        #     ret_val += f'{target_col_name}: toInteger({target_col_name})'
+            ret_val += f"split(CASE WHEN row.{target_col_name} <> '' AND row.{target_col_name} IS NOT NULL THEN row.{target_col_name} ELSE '' END, ';') AS stringList UNWIND stringList AS str WITH toFloat(str) AS floatValue RETURN COLLECT(floatValue)"
+        case 'int':
+            ret_val += f'toInteger(row.{target_col_name})'
         case 'string[]' | 'LABEL':
-            ret_val += f"{target_col_name}: split(row.{target_col_name}, '{array_split_char}')"
+            ret_val += f"split(row.{target_col_name}, '{array_split_char}')"
         case _:
             ret_val = f"ERROR: No data type recognised for {column_name}"
 
@@ -280,7 +294,7 @@ def process_edge_file(_data_dir, _infile, _outfile, _max_items):
         # start the output
         out_file.write('[')
 
-        print('\nParsing data for edge output file...')
+        logger.debug('Parsing data for edge output file...')
 
         # setup a timer
         with Timer(name="edges", text="\tEdges parsed in {:.3f}s"):
@@ -327,7 +341,7 @@ def process_edge_file(_data_dir, _infile, _outfile, _max_items):
                 # flush the output file data to disk
                 out_file.flush()
 
-            print('\nFinal Edge stats: {total_edge_count} node(s)'.format(total_edge_count=total_edge_count))
+            logger.debug('Final Edge stats: %s edge(s): ', total_edge_count)
 
 
 def process_node_file(_data_dir, _infile, _outfile, _max_items):
@@ -400,7 +414,9 @@ def process_node_file(_data_dir, _infile, _outfile, _max_items):
                 # flush the output file data to disk
                 out_file.flush()
 
-        print('\nFinal Node stats: {total_node_count} node(s)'.format(total_node_count=total_node_count))
+        logger.debug('Final Node stats:%s node(s)', total_node_count)
+
+# def create_csv_header():
 
 
 if __name__ == "__main__":
@@ -417,7 +433,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     run_type: str = args.type.upper()
-    print(f'Processing for a {run_type} run type...')
+    logger.debug(f'Processing for a %s run type.', run_type)
 
     # process the node file
     if run_type == 'NODE':
@@ -430,8 +446,12 @@ if __name__ == "__main__":
     elif run_type == 'COLHDR':
         node_hdr = process_csv_header(args.data_dir, args.node_infile)
         edge_hdr = process_csv_header(args.data_dir, args.edge_infile)
+
+    # elif run_type == 'CREATECSVHDR':
+    #     node_hdr = create_csv_header(args.data_dir, args.node_infile)
+    #     edge_hdr = create_csv_header(args.data_dir, args.edge_infile)
     else:
-        print('Unknown or missing processing type.')
+        logger.error('Unknown or missing processing type.')
 
     # deprecated: process the csv file
     # elif run_type == 'CSV':

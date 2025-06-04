@@ -6,10 +6,10 @@ import re
 import csv
 from codetiming import Timer
 from common.logger import LoggingUtil
+import pandas as pd
 
 """
 this code takes the node/edge csv files and parses them into a Kuzu DB
-using JSON import libraries
 
 powen, 2025-04-22 
 """
@@ -35,13 +35,13 @@ def create_kuzu_tables(conn: kuzu.Connection, _data_dir, _node_file, _edge_file)
     :return:
     """
 
-    cols: str = process_csv_header(_data_dir, _node_file)
+    n_cols: str = process_csv_header(_data_dir, _node_file)
 
-    conn.execute(f"CREATE NODE TABLE Node({cols}, PRIMARY KEY (id))")
+    conn.execute(f"CREATE NODE TABLE rkNode({n_cols}, PRIMARY KEY (id))")
 
-    cols = process_csv_header(_data_dir, _edge_file)
+    e_cols = process_csv_header(_data_dir, _edge_file)
 
-    conn.execute(f"CREATE REL TABLE Edge(FROM Node TO Node, {cols})")
+    conn.execute(f"CREATE REL TABLE rkEdge(FROM rkNode TO rkNode, {e_cols})")
 
 
 def process_csv_header(_data_dir, _infile):
@@ -104,26 +104,29 @@ def get_conversion(column_name: str, array_split_char: str) -> str:
     target_col_name = re.sub(r'[^A-Za-z0-9_]', '_', target_col_name)
 
     match col_items[-1]:
-        case 'END_ID' | 'START_ID'| 'TYPE' | 'string' | 'ID':
+        case 'START_ID' | 'TYPE' | 'END_ID' | 'string' | 'ID':
             ret_val += f"{target_col_name} STRING"
         case 'boolean':
-            ret_val += f"{target_col_name} STRING"  # BOOLEAN
+            ret_val += f"{target_col_name} BOOLEAN"
         case 'float':
-            ret_val += f"{target_col_name} STRING"  # FLOAT
-        case 'float[]':
-            ret_val += f"{target_col_name} STRING"  # FLOAT[]
+            ret_val += f"{target_col_name} FLOAT"
         case 'int':
-            ret_val += f"{target_col_name} STRING"  # INT32
+            ret_val += f"{target_col_name} INT32"
+            # print(target_col_name, 'INT32')
+        case 'float[]':
+            ret_val += f"{target_col_name} FLOAT[]"
+            # print(target_col_name, 'FLOAT[]')
         case 'string[]' | 'LABEL':
-            ret_val += f"{target_col_name} STRING"  # STRING[]
+            ret_val += f"{target_col_name} STRING[]"
+            # print(target_col_name, 'STRING[]')
         case _:
             ret_val = f"ERROR: No data type recognised for {column_name}"
 
-    print(ret_val)
+    # print(ret_val)
     return ret_val + ','
 
 
-def parse_data(conn: kuzu.Connection, _data_dir, _node_infile, _edge_infile, _outfile) -> None:
+def parse_data(conn: kuzu.Connection, _data_dir, _node_infile, _edge_infile) -> None:
     """
     parses/loads the node/edge JSON data into a Kuzu DB
 
@@ -131,7 +134,6 @@ def parse_data(conn: kuzu.Connection, _data_dir, _node_infile, _edge_infile, _ou
     :param _data_dir:
     :param _node_infile:
     :param _edge_infile:
-    :param _outfile:
     :return:
     """
     node_count = 0
@@ -140,38 +142,92 @@ def parse_data(conn: kuzu.Connection, _data_dir, _node_infile, _edge_infile, _ou
     with Timer(name="nodes", text="DB nodes loaded in {:.2f}s"):
         logger.debug("Loading nodes into the database...")
 
-        for i in range(1, 4):
+        for i in range(1, 21):
             inf = os.path.join(_data_dir, _node_infile + str(i) + '.csv')
             inf = str(inf).replace('\\', '/')
 
-            conn.execute(f'COPY Node FROM "{inf}" (HEADER=true, DELIMITER=",", IGNORE_ERRORS=true);')
+            logger.debug("Loading node file %s into the database...", inf)
+
+            conn.execute(f'COPY rkNode FROM "{inf}" (HEADER=true, DELIMITER=",", IGNORE_ERRORS=false);')
 
             logger.debug(f"Loaded node file %s into the DB.", inf)
 
     with Timer(name="edges", text="DB edges loaded in {:.2f}s"):
         logger.debug("Loading edges into the database...")
 
-        for i in range(1,2):
+        for i in range(1, 24):
             inf = os.path.join(_data_dir, _edge_infile + str(i) + '.csv')
             inf = str(inf).replace('\\', '/')
 
-            conn.execute(f'COPY Edge FROM "{inf}" (HEADER=true, DELIMITER=",", IGNORE_ERRORS=true);')
+            logger.debug("Loading edge file %s into the database...", inf)
 
-            logger.debug(f"Loaded edge file %s into the DB.", inf)
+            conn.execute(f'COPY rkEdge FROM "{inf}" (HEADER=true, DELIMITER=",", IGNORE_ERRORS=false);')
+
+            logger.debug(f'Loaded edge file %s into the DB.', inf)
 
     logger.debug(f"Successfully loaded nodes and edges into the DB.")
 
 
-def check_file(infile):
-    counter = 0
-    with open(infile, 'r', encoding='utf-8') as fh:
-        csv_reader = csv.reader(fh)
+def convert_file(_data_dir, _infile, file_type):
+    with Timer(name="files", text="DB files converted in {:.2f}s"):
+        logger.debug(f"Converting {file_type} files...")
 
-        for line in csv_reader:
-            counter += 1
+        if file_type == 'NODE':
+            rng = range(1, 21)
+        elif file_type == 'EDGE':
+            rng = range(1, 24)
 
-            if len(line) != 1965:
-                logger.debug('line: %s', counter)
+        for i in rng:
+            inf = os.path.join(_data_dir, _infile + str(i) + '.csv')
+
+            # so this works in both a windows and linux environment
+            inf = str(inf).replace('\\', '/')
+
+            out_file = os.path.join(_data_dir, _infile + 'conv' + str(i) + '.csv')
+
+            # so this works in both a windows and linux environment
+            out_file = str(out_file).replace('\\', '/')
+
+            logger.debug("Converting file %s into %s", inf, out_file)
+
+            # load the infile into a pandas object
+            df = pd.read_csv(inf, low_memory=False)
+
+            # convert the list columns to be Kuzu compatible. e.g: "[]", [1,2,3,...], [1.2,2.3,3.4,...], [txt1,txt2, ...]
+            if file_type == 'NODE':
+                # define the target array list columns
+                reformat_list_cols: list = ['category', 'equivalent_identifiers', 'hgvs']
+
+                # define the target int32 columns
+                reformat_int32_cols: list = ['lipinski', 'arom_c', 'sp3_c', 'sp2_c', 'sp_c', 'halogen', 'hetero_sp2_c', 'rotb', 'o_n', 'oh_nh', 'rgb',
+                                             'fda_labels']
+
+            elif file_type == 'EDGE':
+                # define the target array list columns
+                reformat_list_cols: list = ['p_value', 'supporting_affinities', 'slope', 'publications', 'hetio_source', 'tmkp_ids', 'expressed_in',
+                                       'pubchem_assay_ids', 'patent_ids', 'aggregator_knowledge_source', 'category', 'provided_by', 'has_evidence',
+                                       'qualifiers', 'phosphorylation_sites', 'drugmechdb_path_id', 'complex_context']
+
+                # define the target int32 columns
+                reformat_int32_cols: list = ['distance_to_feature']
+
+                # duplicate the subject and object columns into from and to columns.
+                # it is a Kuzu requirement that the first 2 columns be from and to.
+                df.insert(loc=0, column='to', value=df['object'])
+                df.insert(loc=0, column='from', value=df['subject'])
+
+            # apply the new formatting for lists
+            for col in reformat_list_cols:
+                df[col] = df[col].apply(lambda x: [] if pd.isna(x) else '[' + ','.join(map(str, x.split(';'))) + ']')
+
+            # apply the new formatting for INT32 data
+            for col in reformat_int32_cols:
+                df[col] = df[col].apply(lambda x: x if pd.isna(x) else str(int(x)))
+
+            # create the new file
+            df.to_csv(out_file, index=False)
+
+            logger.debug(f"%s file %s converted and exported to %s.", file_type, inf, out_file)
 
 
 if __name__ == "__main__":
@@ -200,13 +256,13 @@ if __name__ == "__main__":
     # get the path to the DB
     db_dir: str = os.path.join(args.data_dir, str(args.outfile))
 
-    # wipe the DB if we are creating tables
+    # # wipe the DB if we are creating tables
     if run_type == "TABLES" and os.path.isdir(db_dir):
         # Delete directory each time until we have MERGE FROM available in kuzu
         shutil.rmtree(db_dir, ignore_errors=True)
 
     # Create the database
-    db = kuzu.Database(db_dir)
+    db = kuzu.Database(db_dir, max_db_size=274877906944)
 
     # get a DB connection
     connection = kuzu.Connection(db)
@@ -220,11 +276,11 @@ if __name__ == "__main__":
         # parse the data if requested
         if run_type == "DATA":
             # parse the data
-            parse_data(connection, args.data_dir, args.node_infile, args.edge_infile, args.outfile)
+            parse_data(connection, args.data_dir, args.node_infile, args.edge_infile)
 
-        if run_type == "CHECK":
-            check_file(os.path.join(args.data_dir, args.node_infile))
-            check_file(os.path.join(args.data_dir, args.edge_infile))
+        if run_type == "CONVERT":
+            convert_file(args.data_dir, args.node_infile, 'NODE')
+            convert_file(args.data_dir, args.edge_infile, 'EDGE')
 
     except Exception as e:
         logger.exception(f'Exception parsing')

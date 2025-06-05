@@ -3,7 +3,6 @@ import shutil
 import argparse
 import kuzu
 import re
-import csv
 from codetiming import Timer
 from common.logger import LoggingUtil
 import pandas as pd
@@ -35,23 +34,25 @@ def create_kuzu_tables(conn: kuzu.Connection, _data_dir, _node_file, _edge_file)
     :return:
     """
 
-    n_cols: str = process_csv_header(_data_dir, _node_file)
+    n_cols: str = process_csv_header(_data_dir, _node_file, 'NODE')
 
     conn.execute(f"CREATE NODE TABLE rkNode({n_cols}, PRIMARY KEY (id))")
 
-    e_cols = process_csv_header(_data_dir, _edge_file)
+    e_cols = process_csv_header(_data_dir, _edge_file, 'EDGE')
 
     conn.execute(f"CREATE REL TABLE rkEdge(FROM rkNode TO rkNode, {e_cols})")
 
 
-def process_csv_header(_data_dir, _infile):
+def process_csv_header(_data_dir, _infile, file_type):
     """
     parses the robokop csv header line and creates
 
     note that this expects the header from the nodes.temp_csv and edges.temp.csv file.
 
+
     :param _data_dir:
     :param _infile:
+    :param file_type:
     :return:
     """
     with open(os.path.join(_data_dir, _infile), 'r', encoding='utf-8') as in_file:
@@ -62,13 +63,20 @@ def process_csv_header(_data_dir, _infile):
 
         ret_val: str = ''
 
+        # get the set of columns to rename for this file type
+        if file_type == 'NODE':
+            rename_cols = {'category': 'labels'}
+        elif file_type == 'EDGE':
+            rename_cols = {'predicate': 'label'}
+
         try:
             # for each line in the file
             while True:
                 # get a line of data
                 cols = next(file_iter)
 
-                cols = cols.split('\t')
+                # split the column header by the tab delimiter
+                cols = str(cols).split('\t')
 
                 logger.debug('Number of columns in %s to process: %s', os.path.join(_data_dir, _infile), len(cols))
 
@@ -79,8 +87,15 @@ def process_csv_header(_data_dir, _infile):
                 raise StopIteration
 
         except StopIteration:
+            # rename columns
+            for k, v in rename_cols.items():
+                ret_val = ret_val.replace(k, v)
+
+            # string off the final comma
             ret_val = ret_val[:-1]
-            return ret_val
+
+        # return to the caller
+        return ret_val
 
 
 def get_conversion(column_name: str, array_split_char: str) -> str:
@@ -111,14 +126,11 @@ def get_conversion(column_name: str, array_split_char: str) -> str:
         case 'float':
             ret_val += f"{target_col_name} FLOAT"
         case 'int':
-            ret_val += f"{target_col_name} INT32"
-            # print(target_col_name, 'INT32')
+            ret_val += f"{target_col_name} INT32"  # print(target_col_name, 'INT32')
         case 'float[]':
-            ret_val += f"{target_col_name} FLOAT[]"
-            # print(target_col_name, 'FLOAT[]')
+            ret_val += f"{target_col_name} FLOAT[]"  # print(target_col_name, 'FLOAT[]')
         case 'string[]' | 'LABEL':
-            ret_val += f"{target_col_name} STRING[]"
-            # print(target_col_name, 'STRING[]')
+            ret_val += f"{target_col_name} STRING[]"  # print(target_col_name, 'STRING[]')
         case _:
             ret_val = f"ERROR: No data type recognised for {column_name}"
 
@@ -188,6 +200,15 @@ def convert_file(_data_dir, _infile, file_type):
             # so this works in both a windows and linux environment
             out_file = str(out_file).replace('\\', '/')
 
+            # init the columns to rename
+            reformat_rename_cols: dict = {}
+
+            # init the target array list columns
+            reformat_list_cols: list = []
+
+            # init the target int32 columns
+            reformat_int32_cols: list = []
+
             logger.debug("Converting file %s into %s", inf, out_file)
 
             # load the infile into a pandas object
@@ -195,18 +216,24 @@ def convert_file(_data_dir, _infile, file_type):
 
             # convert the list columns to be Kuzu compatible. e.g: "[]", [1,2,3,...], [1.2,2.3,3.4,...], [txt1,txt2, ...]
             if file_type == 'NODE':
+                # define the cols that need renaming
+                reformat_rename_cols = {'category': 'labels'}
+
                 # define the target array list columns
-                reformat_list_cols: list = ['category', 'equivalent_identifiers', 'hgvs']
+                reformat_list_cols = ['labels', 'equivalent_identifiers', 'hgvs']
 
                 # define the target int32 columns
-                reformat_int32_cols: list = ['lipinski', 'arom_c', 'sp3_c', 'sp2_c', 'sp_c', 'halogen', 'hetero_sp2_c', 'rotb', 'o_n', 'oh_nh', 'rgb',
-                                             'fda_labels']
+                reformat_int32_cols = ['lipinski', 'arom_c', 'sp3_c', 'sp2_c', 'sp_c', 'halogen', 'hetero_sp2_c', 'rotb', 'o_n', 'oh_nh', 'rgb',
+                                       'fda_labels']
 
             elif file_type == 'EDGE':
+                # define the cols that need renaming
+                reformat_rename_cols = {'predicate': 'label'}
+
                 # define the target array list columns
                 reformat_list_cols: list = ['p_value', 'supporting_affinities', 'slope', 'publications', 'hetio_source', 'tmkp_ids', 'expressed_in',
-                                       'pubchem_assay_ids', 'patent_ids', 'aggregator_knowledge_source', 'category', 'provided_by', 'has_evidence',
-                                       'qualifiers', 'phosphorylation_sites', 'drugmechdb_path_id', 'complex_context']
+                                            'pubchem_assay_ids', 'patent_ids', 'aggregator_knowledge_source', 'category', 'provided_by',
+                                            'has_evidence', 'qualifiers', 'phosphorylation_sites', 'drugmechdb_path_id']
 
                 # define the target int32 columns
                 reformat_int32_cols: list = ['distance_to_feature']
@@ -215,6 +242,9 @@ def convert_file(_data_dir, _infile, file_type):
                 # it is a Kuzu requirement that the first 2 columns be from and to.
                 df.insert(loc=0, column='to', value=df['object'])
                 df.insert(loc=0, column='from', value=df['subject'])
+
+                # rename any columns in the data
+                df.rename(columns=reformat_rename_cols, inplace=True)
 
             # apply the new formatting for lists
             for col in reformat_list_cols:

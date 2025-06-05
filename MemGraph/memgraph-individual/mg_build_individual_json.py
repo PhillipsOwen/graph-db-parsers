@@ -282,7 +282,7 @@ def process_edge_file(_data_dir, _infile, _outfile, _max_items):
         d_line: dict = {}
         first_record = True
 
-        # define the way the edges are remapped fpr memgraph
+        # define the way the edges are renamed for memgraph
         edge_key_map: dict = {'subject': 'start', 'object': 'end', 'predicate': 'label'}
 
         # init the edge counter
@@ -361,7 +361,7 @@ def process_node_file(_data_dir, _infile, _outfile, _max_items):
         d_line: dict = {}
         first_record = True
 
-        # create a map for the node data
+        # define the way the nodes are renamed for memgraph
         node_key_map: dict = {'id': 'id', 'category': 'labels'}
 
         # load a file iterator for the edges and nodes

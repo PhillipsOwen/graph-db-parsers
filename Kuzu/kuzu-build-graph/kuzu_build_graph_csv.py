@@ -36,11 +36,11 @@ def create_kuzu_tables(conn: kuzu.Connection, _data_dir, _node_file, _edge_file)
 
     n_cols: str = process_csv_header(_data_dir, _node_file, 'NODE')
 
-    conn.execute(f"CREATE NODE TABLE rkNode({n_cols}, PRIMARY KEY (id))")
+    conn.execute(f"CREATE NODE TABLE Node({n_cols}, PRIMARY KEY (id))")
 
     e_cols = process_csv_header(_data_dir, _edge_file, 'EDGE')
 
-    conn.execute(f"CREATE REL TABLE rkEdge(FROM rkNode TO rkNode, {e_cols})")
+    conn.execute(f"CREATE REL TABLE Edge(FROM Node TO Node, {e_cols})")
 
 
 def process_csv_header(_data_dir, _infile, file_type):
@@ -126,7 +126,7 @@ def get_conversion(column_name: str, array_split_char: str) -> str:
         case 'float':
             ret_val += f"{target_col_name} FLOAT"
         case 'int':
-            ret_val += f"{target_col_name} INT32"  # print(target_col_name, 'INT32')
+            ret_val += f"{target_col_name} INT64"  # print(target_col_name, 'INT64')
         case 'float[]':
             ret_val += f"{target_col_name} FLOAT[]"  # print(target_col_name, 'FLOAT[]')
         case 'string[]' | 'LABEL':
@@ -151,31 +151,39 @@ def parse_data(conn: kuzu.Connection, _data_dir, _node_infile, _edge_infile) -> 
     node_count = 0
     edge_count = 0
 
-    with Timer(name="nodes", text="DB nodes loaded in {:.2f}s"):
-        logger.debug("Loading nodes into the database...")
+    try:
+        # specify the range of node/edge files to work
+        node_rng = range(1, 21)
+        edge_rng = range(1, 24)
 
-        for i in range(1, 21):
-            inf = os.path.join(_data_dir, _node_infile + str(i) + '.csv')
-            inf = str(inf).replace('\\', '/')
+        with Timer(name="nodes", text="DB nodes loaded in {:.2f}s"):
+            logger.debug("Loading nodes into the database...")
 
-            logger.debug("Loading node file %s into the database...", inf)
+            for i in node_rng:
+                inf = os.path.join(_data_dir, _node_infile + str(i) + '.csv')
+                inf = str(inf).replace('\\', '/')
 
-            conn.execute(f'COPY rkNode FROM "{inf}" (HEADER=true, DELIMITER=",", IGNORE_ERRORS=false);')
+                logger.debug("Loading node file %s into the database...", inf)
 
-            logger.debug(f"Loaded node file %s into the DB.", inf)
+                conn.execute(f'COPY Node FROM "{inf}" (HEADER=true, DELIMITER=",", IGNORE_ERRORS=false);')
 
-    with Timer(name="edges", text="DB edges loaded in {:.2f}s"):
-        logger.debug("Loading edges into the database...")
+                logger.debug(f"Loaded node file %s into the DB.", inf)
 
-        for i in range(1, 24):
-            inf = os.path.join(_data_dir, _edge_infile + str(i) + '.csv')
-            inf = str(inf).replace('\\', '/')
+        with Timer(name="edges", text="DB edges loaded in {:.2f}s"):
+            logger.debug("Loading edges into the database...")
 
-            logger.debug("Loading edge file %s into the database...", inf)
+            for i in edge_rng:
+                inf = os.path.join(_data_dir, _edge_infile + str(i) + '.csv')
+                inf = str(inf).replace('\\', '/')
 
-            conn.execute(f'COPY rkEdge FROM "{inf}" (HEADER=true, DELIMITER=",", IGNORE_ERRORS=false);')
+                logger.debug("Loading edge file %s into the database...", inf)
 
-            logger.debug(f'Loaded edge file %s into the DB.', inf)
+                conn.execute(f'COPY Edge FROM "{inf}" (HEADER=true, DELIMITER=",", IGNORE_ERRORS=false);')
+
+                logger.debug(f'Loaded edge file %s into the DB.', inf)
+
+    except Exception as e:
+        print(e)
 
     logger.debug(f"Successfully loaded nodes and edges into the DB.")
 
@@ -184,6 +192,7 @@ def convert_file(_data_dir, _infile, file_type):
     with Timer(name="files", text="DB files converted in {:.2f}s"):
         logger.debug(f"Converting {file_type} files...")
 
+        # specify the range of files to work
         if file_type == 'NODE':
             rng = range(1, 21)
         elif file_type == 'EDGE':
@@ -209,6 +218,9 @@ def convert_file(_data_dir, _infile, file_type):
             # init the target int32 columns
             reformat_int32_cols: list = []
 
+            # init the target columns to delete
+            reformat_del_cols: list = []
+
             logger.debug("Converting file %s into %s", inf, out_file)
 
             # load the infile into a pandas object
@@ -216,43 +228,69 @@ def convert_file(_data_dir, _infile, file_type):
 
             # convert the list columns to be Kuzu compatible. e.g: "[]", [1,2,3,...], [1.2,2.3,3.4,...], [txt1,txt2, ...]
             if file_type == 'NODE':
-                # define the cols that need renaming
+                # define the cols that need renaming (same for RK and CTD data)
                 reformat_rename_cols = {'category': 'labels'}
 
                 # define the target array list columns
                 reformat_list_cols = ['labels', 'equivalent_identifiers', 'hgvs']
 
-                # define the target int32 columns
+                # define the target int32 columns (None for CTD data)
                 reformat_int32_cols = ['lipinski', 'arom_c', 'sp3_c', 'sp2_c', 'sp_c', 'halogen', 'hetero_sp2_c', 'rotb', 'o_n', 'oh_nh', 'rgb',
                                        'fda_labels']
 
             elif file_type == 'EDGE':
-                # define the cols that need renaming
+                # define the cols that need renaming (same for CTD and RK)
                 reformat_rename_cols = {'predicate': 'label'}
 
                 # define the target array list columns
                 reformat_list_cols: list = ['p_value', 'supporting_affinities', 'slope', 'publications', 'hetio_source', 'tmkp_ids', 'expressed_in',
                                             'pubchem_assay_ids', 'patent_ids', 'aggregator_knowledge_source', 'category', 'provided_by',
-                                            'has_evidence', 'qualifiers', 'phosphorylation_sites', 'drugmechdb_path_id']
+                                            'complex_context', 'has_evidence', 'qualifiers', 'phosphorylation_sites', 'drugmechdb_path_id']
 
-                # define the target int32 columns
+                # define the target int32 columns (none for CTD data)
                 reformat_int32_cols: list = ['distance_to_feature']
+
+                # RK data testing only - define the columns to delete (none for CTD data)
+                # reformat_del_cols: list = ['agent_type','snpeff_effect','distance_to_feature','publications','p_value','ligand','protein',
+                #                            'affinity_parameter','supporting_affinities','affinity','object_aspect_qualifier','object_direction_qualifier',
+                #                            'qualified_predicate','Coexpression','Coexpression_transferred','Experiments','Experiments_transferred',
+                #                            'Database','Database_transferred','Textmining','Textmining_transferred','Cooccurance','Combined_score',
+                #                            'species_context_qualifier','hetio_source','tmkp_confidence_score','sentences','tmkp_ids','detection_method',
+                #                            'Homology','expressed_in','slope','pubchem_assay_ids','patent_ids','aggregator_knowledge_source','id',
+                #                            'original_subject','category','provided_by','disease_context_qualifier','frequency_qualifier','has_evidence',
+                #                            'negated','original_object','score','FAERS_llr','description','NCBITaxon','Fusion','has_count','has_percentage',
+                #                            'has_quotient','has_total','qualifiers','stage_qualifier','primaryTarget','endogenous','anatomical_context_qualifier',
+                #                            'phosphorylation_sites','onset_qualifier','object_specialization_qualifier','drugmechdb_path_id','complex_context',
+                #                            'sex_qualifier','object_part_qualifier','subject_part_qualifier']
 
                 # duplicate the subject and object columns into from and to columns.
                 # it is a Kuzu requirement that the first 2 columns be from and to.
                 df.insert(loc=0, column='to', value=df['object'])
                 df.insert(loc=0, column='from', value=df['subject'])
 
-                # rename any columns in the data
-                df.rename(columns=reformat_rename_cols, inplace=True)
+                # RK data - fill the id column
+                # df['id'] = range(start_id, start_id + df.shape[0])
+
+                # RK data - increment the id to be the
+                # start_id += df.shape[0]
+
+            # rename any columns in the data
+            df.rename(columns=reformat_rename_cols, inplace=True)
 
             # apply the new formatting for lists
             for col in reformat_list_cols:
-                df[col] = df[col].apply(lambda x: [] if pd.isna(x) else '[' + ','.join(map(str, x.split(';'))) + ']')
+                # only do this if the column is there
+                if col in df:
+                    df[col] = df[col].apply(lambda x: [] if pd.isna(x) else '[' + ','.join(map(str, str(x).replace('\'', '`').split(';'))) + ']')
 
             # apply the new formatting for INT32 data
             for col in reformat_int32_cols:
-                df[col] = df[col].apply(lambda x: x if pd.isna(x) else str(int(x)))
+                # only do this if the column is there
+                if col in df:
+                    df[col] = df[col].apply(lambda x: x if pd.isna(x) else str(int(x)))
+
+            # remove specified columns
+            df.drop(columns=reformat_del_cols, inplace=True, axis=1)
 
             # create the new file
             df.to_csv(out_file, index=False)
@@ -286,7 +324,7 @@ if __name__ == "__main__":
     # get the path to the DB
     db_dir: str = os.path.join(args.data_dir, str(args.outfile))
 
-    # # wipe the DB if we are creating tables
+    # wipe the DB if we are creating tables
     if run_type == "TABLES" and os.path.isdir(db_dir):
         # Delete directory each time until we have MERGE FROM available in kuzu
         shutil.rmtree(db_dir, ignore_errors=True)
@@ -316,3 +354,5 @@ if __name__ == "__main__":
         logger.exception(f'Exception parsing')
     finally:
         connection.close()
+
+    logger.debug('Processing complete.')

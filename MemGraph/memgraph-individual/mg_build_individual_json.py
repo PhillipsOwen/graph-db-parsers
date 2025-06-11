@@ -83,9 +83,9 @@ robokop data stats:
 
 def process_csv_file(_data_dir, _infile, _outfile):
     """
-    deprecated: this method parses the ORION input files and converts them to CSV.
+    this method parses the ORION input files and converts them to CSV.
 
-    deprecated: this was abandoned in favor of using JSON files.
+    deprecated: loading json used crazy amounts of mem and took to long to process
 
     :param _data_dir:
     :param _infile:
@@ -130,7 +130,9 @@ def process_csv_file(_data_dir, _infile, _outfile):
 
 def get_csv_field_names(_data_dir, _infile) -> set:
     """
-    deprecated: loops through the ORION input file and returns a set of field names for the CSV header record.
+    loops through the ORION input file and returns a set of field names for the CSV header record.
+
+    deprecated: loading json used crazy amounts of mem and took to long to process
 
     :param _data_dir:
     :param _infile:
@@ -153,7 +155,8 @@ def get_csv_field_names(_data_dir, _infile) -> set:
 
 def process_csv_header(_data_dir, _infile) -> str:
     """
-    parses the robokop csv header line and creates a Memgraph LOAD CSV script
+    parses the robokop csv header line and creates a Memgraph LOAD CSV script. the output
+    of this code is then placed in the fastapi run_mg_data_load_query() endpoint.
 
     note that this expects the header from the nodes.temp_csv and edges.temp.csv file.
 
@@ -231,7 +234,7 @@ def process_csv_header(_data_dir, _infile) -> str:
 def get_conversion(column_name: str, array_split_char: str) -> str:
     """
     Note that the input data is from the original ORION column header. this data is in the format <data name>:<data type> and
-    is used to convert the data in the memgraph import query.
+    is used to convert/map the data in the memgraph import query.
 
     :param column_name:
     :param array_split_char:
@@ -272,6 +275,8 @@ def process_edge_file(_data_dir, _infile, _outfile, _max_items):
 
     after processing copy up to the MemGraph server pod
         k -n translator-exp --retries=10 cp edges.json translator-memgraph-0:/var/lib/memgraph/databases/memgraph/edges.json
+
+    deprecated: loading json used crazy amounts of mem and took to long to process
     """
 
     # open the data files
@@ -349,6 +354,8 @@ def process_node_file(_data_dir, _infile, _outfile, _max_items):
         process the node file.
 
         this method creates import data that uses json_util.load_from_path() to load a single JSON file.
+
+        deprecated: loading json used crazy amounts of mem and took to long to process
     """
     # open the data files
     with (open(os.path.join(_data_dir, _infile), 'r', encoding='utf-8') as in_file,
@@ -415,8 +422,6 @@ def process_node_file(_data_dir, _infile, _outfile, _max_items):
                 out_file.flush()
 
         logger.debug('Final Node stats:%s node(s)', total_node_count)
-
-# def create_csv_header():
 
 
 if __name__ == "__main__":

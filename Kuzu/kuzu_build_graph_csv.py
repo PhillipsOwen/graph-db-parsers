@@ -32,13 +32,98 @@ ordered_categories = ["biolink:GeneFamily", "biolink:Gene", "biolink:Protein", "
                       "biolink:Device", "biolink:OrganismAttribute", "biolink:ClinicalAttribute", "biolink:Activity",
                       "biolink:InformationContentEntity", "biolink:ChemicalEntity", "biolink:BiologicalEntity"]
 
-# define default file counter ranges
-node_rng = range(1, 21)  # note that file #11 is the first file in the sequence that contains more than just GTEX info
+# define the file counter ranges used in the process.
+# all data file indexes ranges are nodes: 1-21, edges: 1-24
+# note node range 11-12, edge range 1-2 is a good set of data to test with
+# use 0 for the upper end of the range to bypass operations on that type of data
+node_rng = range(1, 21)
 edge_rng = range(1, 24)
 
 # init storage for node class and edge predicate lookup data
 node_class_lookups: dict = {}
 edge_predicate_lookups: dict = {}
+
+
+def get_data_lookups(_data_dir, _infile, node_class_list, _file_type) -> dict:
+    """
+    this method bins data found in the "converted" files into node class/edge predicate files.
+
+    this method returns the node and edge columns for Kuzu DB tables.
+
+    :param _data_dir:
+    :param _infile:
+    :param node_class_list:
+    :param _file_type:
+    :return:
+    """
+
+    # specify the range of files to work
+    if _file_type == 'NODE':
+        rng = node_rng
+    elif _file_type == 'EDGE':
+        rng = edge_rng
+    else:
+        raise Exception('Unsupported file type.')
+
+    logger.debug(f"Getting {_file_type} data lookups...")
+
+    # init the return value
+    ret_val: dict = {}
+
+    # save the node and its preferred class for the edge table relationships
+    with Timer(name=_file_type, text="The {name} lookup dict created in {:.2f}s", logger=logger.debug):
+        # for each file to process
+        for i in rng:
+            # get the input file path
+            inf = os.path.join(_data_dir, _infile + str(i) + '.csv')
+
+            # done so this works in both a windows and linux environment
+            inf = str(inf).replace('\\', '/')
+
+            # open the input csv file
+            with open(inf, 'r') as file:
+                # read the csv file
+                reader = csv.reader(file)
+
+                # Skip the header
+                next(reader)
+
+                if _file_type == 'NODE':
+                    # go through each line in the file
+                    for row in reader:
+                        # get the node class
+                        node_id: str = row[0]
+
+                        node_class: str = row[2].split(',')[0][1:]
+
+                        # save this pair to the return list
+                        ret_val.update({node_id: node_class.split(':')[1]})
+
+                # save the source class/predicate/object class
+                elif _file_type == 'EDGE':
+                    edge_class_lookup: set = set()
+
+                    # go through each line in the file
+                    for row in reader:
+                        # get the class for the subject and object
+                        subject_class = node_class_list.get(row[0], None)
+                        object_class = node_class_list.get(row[1], None)
+
+                        # if we found both vertices complete/save the tuple
+                        if subject_class and object_class:
+                            # save this to a set to maintain uniqueness. the predicate is in the 4th column in the CSV file
+                            edge_class_lookup.add(tuple([row[3].split(':')[1], subject_class, object_class]))
+
+                    # get the tuple into a dict
+                    for item in edge_class_lookup:
+                        ret_val.update({item[0]: [item[1], item[2]]})
+
+    # inform the user something may be amiss
+    if len(ret_val) == 0:
+        logger.debug('Warning: No lookup data found for %s.', _file_type)
+
+    # return the dict of node id/classes or n-e-n relationships
+    return ret_val
 
 
 def convert_data(_data_dir, _infile, _file_type) -> None:
@@ -119,7 +204,7 @@ def convert_data(_data_dir, _infile, _file_type) -> None:
 
                 # RK data testing only - define the edge columns to delete (none for CTD data)
 
-                # starts deletion at the 6th column. match table creation with rk-edges.tab-hdr-5cols.temp_csv
+                # starts deletion at the 6th column. match table creation with the rk-edges.tab-hdr-5cols.temp_csv file
                 # reformat_del_cols: list = ['agent_type','snpeff_effect','distance_to_feature','publications','p_value','ligand','protein',
                 #                            'affinity_parameter','supporting_affinities','affinity','object_aspect_qualifier','object_direction_qualifier',
                 #                            'qualified_predicate','Coexpression','Coexpression_transferred','Experiments','Experiments_transferred',
@@ -132,25 +217,33 @@ def convert_data(_data_dir, _infile, _file_type) -> None:
                 #                            'phosphorylation_sites','onset_qualifier','object_specialization_qualifier','drugmechdb_path_id','complex_context',
                 #                            'sex_qualifier','object_part_qualifier','subject_part_qualifier']
 
-                # starts deletion at the 16th column. match table creation with rk-edges.tab-hdr-15cols.temp_csv
-                reformat_del_cols: list = ['object_aspect_qualifier', 'object_direction_qualifier', 'qualified_predicate', 'Coexpression',
-                                           'Coexpression_transferred', 'Experiments', 'Experiments_transferred', 'Database', 'Database_transferred',
-                                           'Textmining', 'Textmining_transferred', 'Cooccurance', 'Combined_score', 'species_context_qualifier',
-                                           'hetio_source', 'tmkp_confidence_score', 'sentences', 'tmkp_ids', 'detection_method', 'Homology',
-                                           'expressed_in', 'slope', 'pubchem_assay_ids', 'patent_ids', 'aggregator_knowledge_source', 'id',
-                                           'original_subject', 'category', 'provided_by', 'disease_context_qualifier', 'frequency_qualifier',
-                                           'has_evidence', 'negated', 'original_object', 'score', 'FAERS_llr', 'description', 'NCBITaxon', 'Fusion',
-                                           'has_count', 'has_percentage', 'has_quotient', 'has_total', 'qualifiers', 'stage_qualifier',
-                                           'primaryTarget', 'endogenous', 'anatomical_context_qualifier', 'phosphorylation_sites', 'onset_qualifier',
-                                           'object_specialization_qualifier', 'drugmechdb_path_id', 'complex_context', 'sex_qualifier',
-                                           'object_part_qualifier', 'subject_part_qualifier']
+                # starts deletion at the 16th column. match table creation with the rk-edges.tab-hdr-15cols.temp_csv file
+                # reformat_del_cols: list = ['object_aspect_qualifier', 'object_direction_qualifier', 'qualified_predicate', 'Coexpression',
+                #                            'Coexpression_transferred', 'Experiments', 'Experiments_transferred', 'Database', 'Database_transferred',
+                #                            'Textmining', 'Textmining_transferred', 'Cooccurance', 'Combined_score', 'species_context_qualifier',
+                #                            'hetio_source', 'tmkp_confidence_score', 'sentences', 'tmkp_ids', 'detection_method', 'Homology',
+                #                            'expressed_in', 'slope', 'pubchem_assay_ids', 'patent_ids', 'aggregator_knowledge_source', 'id',
+                #                            'original_subject', 'category', 'provided_by', 'disease_context_qualifier', 'frequency_qualifier',
+                #                            'has_evidence', 'negated', 'original_object', 'score', 'FAERS_llr', 'description', 'NCBITaxon', 'Fusion',
+                #                            'has_count', 'has_percentage', 'has_quotient', 'has_total', 'qualifiers', 'stage_qualifier',
+                #                            'primaryTarget', 'endogenous', 'anatomical_context_qualifier', 'phosphorylation_sites',
+                #                            'onset_qualifier', 'object_specialization_qualifier', 'drugmechdb_path_id', 'complex_context',
+                #                            'sex_qualifier', 'object_part_qualifier', 'subject_part_qualifier']
 
-                # starts deletion at the 21st column. match table creation with rk-edges.tab-hdr-20cols.temp_csv
+                # starts deletion at the 21st column. match table creation with the rk-edges.tab-hdr-20cols.temp_csv file
                 # reformat_del_cols: list = ['Experiments', 'Experiments_transferred', 'Database', 'Database_transferred',
                 #                            'Textmining', 'Textmining_transferred', 'Cooccurance', 'Combined_score', 'species_context_qualifier',
                 #                            'hetio_source', 'tmkp_confidence_score', 'sentences', 'tmkp_ids', 'detection_method', 'Homology',
                 #                            'expressed_in', 'slope', 'pubchem_assay_ids', 'patent_ids', 'aggregator_knowledge_source', 'id',
                 #                            'original_subject', 'category', 'provided_by', 'disease_context_qualifier', 'frequency_qualifier',
+                #                            'has_evidence', 'negated', 'original_object', 'score', 'FAERS_llr', 'description', 'NCBITaxon', 'Fusion',
+                #                            'has_count', 'has_percentage', 'has_quotient', 'has_total', 'qualifiers', 'stage_qualifier',
+                #                            'primaryTarget', 'endogenous', 'anatomical_context_qualifier', 'phosphorylation_sites',
+                #                            'onset_qualifier', 'object_specialization_qualifier', 'drugmechdb_path_id', 'complex_context',
+                #                            'sex_qualifier', 'object_part_qualifier', 'subject_part_qualifier']
+
+                # starts deletion at the 41st column. match table creation with the rk-edges.tab-hdr-40cols.temp_csv file
+                # reformat_del_cols: list = ['id', 'original_subject', 'category', 'provided_by', 'disease_context_qualifier', 'frequency_qualifier',
                 #                            'has_evidence', 'negated', 'original_object', 'score', 'FAERS_llr', 'description', 'NCBITaxon', 'Fusion',
                 #                            'has_count', 'has_percentage', 'has_quotient', 'has_total', 'qualifiers', 'stage_qualifier',
                 #                            'primaryTarget', 'endogenous', 'anatomical_context_qualifier', 'phosphorylation_sites',
@@ -324,7 +417,7 @@ def create_kuzu_tables(conn: kuzu.Connection, _data_dir, _node_file, _edge_file)
     """
 
     node_header_file_name = 'rk-nodes.tab-hdr.temp_csv'
-    edge_header_file_name = 'rk-edges.tab-hdr-15cols.temp_csv'
+    edge_header_file_name = 'rk-edges.tab-hdr.temp_csv'
 
     try:
         # get the list of node columns
@@ -523,88 +616,6 @@ def import_data(conn: kuzu.Connection, _data_dir, _node_infile, _edge_infile) ->
         logger.exception('Exception detected:', e)
 
     logger.debug(f"Successfully loaded nodes and edges into the DB.")
-
-
-def get_data_lookups(_data_dir, _infile, node_class_list, _file_type) -> dict:
-    """
-    this method bins data found in the "converted" files into node class/edge predicate files.
-
-    this method returns the node and edge columns for Kuzu DB tables.
-
-    :param _data_dir:
-    :param _infile:
-    :param node_class_list:
-    :param _file_type:
-    :return:
-    """
-
-    # specify the range of files to work
-    if _file_type == 'NODE':
-        rng = node_rng
-    elif _file_type == 'EDGE':
-        rng = edge_rng
-    else:
-        raise Exception('Unsupported file type.')
-
-    logger.debug(f"Getting {_file_type} data lookups...")
-
-    # init the return value
-    ret_val: dict = {}
-
-    # save the node and its preferred class for the edge table relationships
-    with Timer(name=_file_type, text="The {name} lookup dict created in {:.2f}s", logger=logger.debug):
-        # for each file to process
-        for i in rng:
-            # get the input file path
-            inf = os.path.join(_data_dir, _infile + str(i) + '.csv')
-
-            # done so this works in both a windows and linux environment
-            inf = str(inf).replace('\\', '/')
-
-            # open the input csv file
-            with open(inf, 'r') as file:
-                # read the csv file
-                reader = csv.reader(file)
-
-                # Skip the header
-                next(reader)
-
-                if _file_type == 'NODE':
-                    # go through each line in the file
-                    for row in reader:
-                        # get the node class
-                        node_id: str = row[0]
-
-                        node_class: str = row[2].split(',')[0][1:]
-
-                        # save this pair to the return list
-                        ret_val.update({node_id: node_class.split(':')[1]})
-
-                # save the source class/predicate/object class
-                elif _file_type == 'EDGE':
-                    edge_class_lookup: set = set()
-
-                    # go through each line in the file
-                    for row in reader:
-                        # get the class for the subject and object
-                        subject_class = node_class_list.get(row[0], None)
-                        object_class = node_class_list.get(row[1], None)
-
-                        # if we found both vertices complete/save the tuple
-                        if subject_class and object_class:
-                            # save this to a set to maintain uniqueness. the predicate is in the 4th column in the CSV file
-                            edge_class_lookup.add(tuple([row[3].split(':')[1], subject_class, object_class]))
-
-                    # get the tuple into a dict
-                    for item in edge_class_lookup:
-                        ret_val.update({item[0]: [item[1], item[2]]})
-
-    # inform the user something may be amiss
-    if len(ret_val) == 0:
-        logger.debug('Warning: No lookup data found for %s.', _file_type)
-
-    # return the dict of node id/classes or n-e-n relationships
-    return ret_val
 
 
 if __name__ == "__main__":

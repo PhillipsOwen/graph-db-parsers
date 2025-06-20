@@ -1,0 +1,74 @@
+//match (a) return a.* limit 2;
+//match (a) return count(a);
+//match ()-[e]-() return count(e);
+//match (a:Node)--(b) return * limit 1;
+//match (a) detach delete a;
+
+to create the DB on a k8s pod
+-----------------------------------------
+use the fastapi pod
+cd to /omnicorp/graph-eval
+remove old DB (if exists and with an owner other than 1000)
+
+---------------------
+- processing steps for the k8s deployment
+- Notes:
+  - these steps are run on a k8s pod that has all the python libs installed.
+  - the data directories can be found in /projects/omnicoprt/graph-eval or /database/graph-eval
+  - terminate processes that are connected to the existing DB.
+    - if the graph-db-eval (fastapi) pod is to be used, the connection should be disabled, and the deployment restarted.
+    - if the k8s kuzu UI is running, it must be stopped.
+  - the number of columns in the edge table creation process must match the converted data files. so the convert process deletes the columns
+    specified. e.g., rk-edges.tab-hdr-5cols.temp_csv, rk-edges.tab-hdr-15cols.temp_csv or rk-edges.tab-hdr-20cols.temp_csv,
+
+---------------------
+// step 1: create the node class and edge predicates lookup tables if the pickle files do not exist.
+python kuzu_build_graph_csv.py --node-infile=rk-nodes-conv --edge-infile=rk-edges-conv --data-dir=/<mount point>/graph-eval --outfile=rk-kuzu-db --type=create_lus
+
+// step 2: convert the MemGraph RK csv files into the Kuzu compliant equivalent. Creates rk-nodes-ptconv*.csv and rk-edges-ptconv*.csv files.
+python kuzu_build_graph_csv.py --node-infile=rk-nodes-pt --edge-infile=rk-edges-pt --data-dir=/<mount point>/graph-eval --outfile=rk-kuzu-db --type=convert
+
+// step 3: bin data files by node class and edge predicates
+python kuzu_build_graph_csv.py --node-infile=rk-nodes-conv --edge-infile=rk-edges-conv --data-dir=/<mount point>/graph-eval --outfile=rk-kuzu-db --type=bin
+
+// step 4: create the Kuzu DB tables (many are created)
+python kuzu_build_graph_csv.py --node-infile=rk-nodes.tab-hdr.temp_csv --edge-infile=rk-edges.tab-hdr.temp_csv --data-dir=/<mount point>/graph-eval --outfile=rk-kuzu-db --type=tables
+Notes:
+  on 6/4/2025 the "description" column type was changed from STRING[] to STRING in the rk-edges.tab-hdr.temp_csv file.
+  on 6/5/2025 the "complex_context" column type was changed from STRING[] to STRING in the rk-edges.tab-hdr.temp_csv file.
+  on 6/5/2025 node column "category" renamed to labels
+  on 6/5/2025 edge column "predicate" renamed to label
+  on 6/6/2025 the "complex_context" column type was restored to STRING[] rk-edges.tab-hdr.temp_csv file.
+  on 6/6/2025 the "id" column in the edge data was changed to type INT64 and integer ids were placed in the data.
+  on 6/9/2025 reduced the number of edge columns to 5.
+
+// step 5: import the CSV file data
+python kuzu_build_graph_csv.py --node-infile=rk-nodes-bin- --edge-infile=rk-edges-bin- --data-dir=/<mount point>/graph-eval --outfile=rk-kuzu-db --type=import
+
+using the compute cluster to load the data
+------------------------------------------
+Note: in the end this did not work due to odd memory errors on the cluster when loading.
+
+installing the kuzu package
+
+conda create -n kuzu_build -c conda-forge \
+  python=3.10 \
+  cmake \
+  make \
+  pip \
+  gcc_linux-64=13 \
+  gxx_linux-64=13
+conda activate kuzu_build
+pip install kuzu
+
+creating the DB with the compute cluster
+-----------------------------------------
+install python module if not already: module add python/3.10.0
+make sure this session stays active: screen
+create if not already/activate conda environment: conda activate
+create if not already/activate python venv: source ./venv-3.10/bin/activate
+
+go to the kuzu data directory: cd /projects/omnicorp/graph-eval/
+create the DB: python kuzu_build_graph_csv.py --node-infile=rk-nodes.tab-hdr.temp_csv --edge-infile=rk-edges.tab-hdr.temp_csv --data-dir=/projects/omnicorp/graph-eval --outfile=rk-kuzu-db --type=tables
+load the DB: python kuzu_build_graph_csv.py --node-infile=rk-nodes-pt --edge-infile=rk-edges-pt --data-dir=/projects/omnicorp/graph-eval --outfile=rk-kuzu-db --type=data
+ - before load verify the loop range of what files to parse

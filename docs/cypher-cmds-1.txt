@@ -1,0 +1,130 @@
+
+//////////////////
+// DB property view/manipulation configuration commands
+//////////////////
+
+// system stata
+SHOW STORAGE INFO;
+SHOW CONFIG;
+
+// memory modes
+STORAGE MODE IN_MEMORY_TRANSACTIONAL;
+STORAGE MODE IN_MEMORY_ANALYTICAL;
+STORAGE MODE ON_DISK_TRANSACTIONAL;
+
+// indexes
+SHOW INDEX INFO;
+create index on :Node(id);
+create index on :`biolink:NamedThing`(name);
+drop index ON :`biolink:NamedThing`(name);
+drop index ON :`biolink:Disease`(id);
+
+// constraints
+SHOW CONSTRAINT INFO;
+CREATE CONSTRAINT ON (n:`biolink:Disease`) ASSERT n.id IS UNIQUE
+DROP CONSTRAINT ON (n:`biolink:Disease`) ASSERT n.id IS UNIQUE;
+
+
+// transactions
+SHOW TRANSACTIONS;
+TERMINATE TRANSACTIONS
+"","","","","","","","","","","","","",
+"","","","","","","","","","","","","",
+"","","","","","","","","","","","",""
+
+match (a) return count(*);
+match ()-[e]->() return count(e);
+
+// backups
+CREATE SNAPSHOT;
+// mgconsole -output_format "cypherl" < <(echo "DUMP DATABASE;") > db_dump.cypherl
+
+/////////////////
+// use these commands to start loading/clearing the DB load process
+/////////////////
+STORAGE MODE IN_MEMORY_ANALYTICAL;
+DROP graph;
+
+////////////////
+// general purpose testing queries
+////////////////
+
+match (a: Node {id: "UNII:7PK6VC94OU"}) return a;
+
+match (a) where a.id contains 'MONDO' return * limit 10;
+match (a) where a.id contains 'DOID' return * limit 10;
+match (a) where a.id contains 'CAID' return * limit 10;
+
+match (a) where a.MONDO_SUPERCLASS_viral_infectious_disease <> "" return * limit 10;
+
+profile match ()-[e]-() where size(e.p_value) = 1 return e.p_value, e.p_value IS :: LIST<string> AS isStrList;
+
+profile match ()-[e]-() where size(e.p_value) = 1 with e.p_value
+UNWIND e.p_value AS str WITH toFloat(str) AS floatValue set e.p_value = COLLECT(floatValue) limit 1;
+
+match (a: Node)-[e]->(b: Node)
+return e.p_value limit 25;
+
+WITH split(CASE WHEN '1;2;3;4' <> '' AND 'null' IS NOT null THEN "1;2;3;4" ELSE '' END, ';') AS stringList UNWIND stringList AS str WITH toFloat(str) AS floatValue RETURN COLLECT(floatValue)
+
+WITH split(CASE WHEN '1;2;3;4' <> '' AND '1;2;3;4' IS NOT null THEN "1;2;3;4" ELSE '' END, ';') AS stringList UNWIND stringList AS str WITH toFloat(str) AS floatValue RETURN COLLECT(floatValue)
+
+profile
+match (a:`biolink:Disease` {id:"MONDO:0021085"})-[x]-(b:`biolink:NamedThing`) return type(x) as typ, x.primary_knowledge_source, count(b) as cnt order by cnt, typ;
+
+match (a) where a.name='rs1042522' return *;
+match (a) return a limit 1;
+
+match (a) where a.id="UNII:7PK6VC94OU" return a;
+match (a: Node)-[e]->(b: Node) where e.slope <> return * limit 25;
+
+match (a) with a.name as name, count(a) as cnt where cnt > 1 return name, cnt order by name;
+match (a) where a.name='((1R)-4-(N-cyclopropyl-4-((S)-1,1,1-trifluoro-2-hydroxypropan-2-yl)benzamido)-1-(2-fluorophenyl)cyclohexyl)methyl carbamate' return a;
+
+match (a) return distinct labels(a);
+
+MATCH (a) UNWIND labels(a) AS node_type RETURN collect (DISTINCT node_type);
+
+match (a: Node) return a.name, a.id order by a.name limit 1;
+
+match (a)-[e]->(b) return * limit 1;
+
+match (a)-[e]->(b) where a.id="MONDO:0021085" return a,e,b limit 50;
+match p = (a)-[e]-(c) WHERE a.id = 'UNII:7PK6VC94OU' RETURN p.a;
+match p = (a)-[e]-(c) WHERE a.id = 'UNII:7PK6VC94OU' RETURN relationships(p);
+match (a) return count(*);
+match ()-[e]->() return count(e);
+match ()-[e]->() return distinct type(e) limit 100;
+
+// this crashes the UI pod: match ()-[r]->() RETURN r, properties(r);
+
+// performance queries
+MATCH (source:`biolink:ChemicalEntity`)-[edge_1:`biolink:affects`|`biolink:affects_response_to`|`biolink:ameliorates_condition`|`biolink:decreases_response_to`|`biolink:disrupts`|`biolink:has_adverse_event`|`biolink:increases_response_to`|`biolink:regulates`]->(i:`biolink:NamedThing`) MATCH (i)-[i_subclass_edge:`biolink:subclass_of`*0..1]->(i_superclass:`biolink:NamedThing` {id: "NCBIGene:6868"}) WHERE "biolink:Gene" IN labels(i_superclass) OR "biolink:Protein" IN labels(i_superclass) WITH collect(DISTINCT source) AS source_nodes, collect(DISTINCT i) AS i_nodes, collect(DISTINCT i_superclass) AS superclass_nodes, collect(DISTINCT edge_1) AS edge_1_rels, collect(DISTINCT i_subclass_edge) AS subclass_rels, collect(DISTINCT [source.id, i.id, i_superclass.id, elementId(edge_1), [rel IN i_subclass_edge | elementId(rel)]]) AS paths WITH source_nodes + i_nodes + superclass_nodes AS all_nodes, edge_1_rels + reduce(acc = [], rels IN subclass_rels | acc + rels) AS all_edges, paths WITH [n IN all_nodes | n] AS nodes, [e IN all_edges | [elementId(e), startNode(e).id, type(e), endNode(e).id, properties(e)]] AS edges, paths RETURN nodes, edges, paths
+
+/////////////////
+// danger zone
+/////////////////
+
+// remove some number of edges with nodes
+match (a)-[e]-() with a, e limit 1350000 detach delete a, e;
+
+// remove nodes with no relationships now that the edges are gone
+match (a) where node.degree_in(a) = 0 detach delete a;
+
+// delete all edges
+match ()-[e]-() delete e;
+
+// delete specific edges only
+match ()-[e:`biolink:affects`]->() delete e;
+match ()-[e:`biolink:subclass_of`]->() delete e;
+match ()-[e:`biolink:is_nearby_variant_of`]->() delete e;
+match ()-[e:`biolink:coexpressed_with`]->() delete e;
+match ()-[e:`biolink:has_phenotype`]->() delete e;
+
+
+////////////////
+// loading CSV files
+////////////////
+match (a: Node)-[e]->(b: Node) where split(e.p_value, ';') is not null return split(e.p_value, ';') limit 25;
+
+return WITH split('2;1;0', ';') AS strList UNWIND strList AS str WITH toFloat(str) AS floatValue RETURN COLLECT(floatValue)

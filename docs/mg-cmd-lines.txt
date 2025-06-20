@@ -1,0 +1,36 @@
+All commands expected to be run from something that has the /projects/omnicorp directory mounted
+
+------------
+CTD data
+------------
+
+Deprecated: Process individual MemGraph node/edge data files
+------------
+mg_build_individual_json.py
+--node-infile=ctd-nodes.jsonl --edge-infile=ctd-edges.jsonl --data-dir=graph-eval --outfile=ctd-mg-nodes.json --max-items=-1 --type=node
+--node-infile=ctd-nodes.jsonl --edge-infile=ctd-edges.jsonl --data-dir=graph-eval --outfile=ctd-mg-edges.json --max-items=-1 --type=edge
+
+Deprecated: Process MemGraph merged data file
+------------
+mg_build_merge_json.py
+--node-infile ctd-nodes.jsonl --edge-infile=ctd-edges.jsonl --data-dir graph-eval --outfile ctd-mg
+
+------------
+RoboKop data
+------------
+
+Create column definitions for LOAD CSV CYPHER script
+-------------
+mg_build_individual_json.py
+--node-infile=rk-nodes.tab-hdr.temp_csv --edge-infile=rk-edges.tab-hdr.temp_csv --data-dir=D:/dvols/graph-eval/robokop_data/MemGraph --outfile=none --max-items=none --type=colhdr
+
+Deprecated: Process individual MemGraph node/edge JSON data files
+------------
+mg_build_individual_json.py
+--node-infile=rk-nodes.jsonl --edge-infile=rk-edges.jsonl --data-dir=graph-eval --outfile=rk-mg-nodes.json --max-items=-1 --type=node
+--node-infile=rk-nodes.jsonl --edge-infile=rk-edges.jsonl --data-dir=graph-eval --outfile=rk-mg-edges.json --max-items=-1 --type=edge
+
+Deprecated: Process MemGraph merged node/edge JSON data file
+------------
+mg_build_merge_json.py
+--node-infile rk-nodes.jsonl --edge-infile=rk-edges.jsonl --data-dir graph-eval --outfile rk-mg

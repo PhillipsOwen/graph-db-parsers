@@ -1,0 +1,36 @@
+process to get files ready for processing
+
+starting files: 
+ - nodes.temp_csv, edges.temp_csv
+ - found in /projects/stars/Data_services/biolink3/graphs/RobokopKG/23f46efa87c2bad7
+ - reformatted using kgx-file-import to change delimiters ("\t" -> ",", "0x1F" ->";")
+   -  produces rk-nodes.csv, rk-edges.csv
+ - files now located at: /projects/omnicorp/graph-eval/common
+ 
+tab and comma delimited headers
+ - use nodes.temp_csv, edges.temp_csv to get column tab delimited headers with data types
+   - run in: /projects/omnicorp/graph-eval/common
+   - head -1 nodes.temp_csv >> ../rk-nodes.tab-hdr.temp_csv
+   - head -1 edges.temp_csv >> ../rk-edges.tab-hdr.temp_csv
+   
+ - important note: the nodes.temp_csv is missing the robokop_variant_id:string column which should 
+   be added manually to the file after the hgvs column.
+   
+ - use rk-nodes.csv and rk-edges.csv to get comma delimited headers for the csv files
+   - grab the top line in each: 
+     - head -1 rk-nodes.csv >> ../rk-node-header-cols.csv
+     - head -1 rk-edges.csv >> ../rk-edge-header-cols.csv
+   - move them local working directory for more processing
+     
+ - Cleaning up/readying date
+   - some columns contain characters that need to be replaced with an underscore (e.g., commas, colons, hyphens, etc.)
+   - node/edge split files concatenation (bash commands)
+     = create_split_node_csv_files.sh, create_split_edge_csv_files.sh
+     - uses ./common/rk-node-header-cols.csv and ./common/rk-edge-header-cols.csv
+
+ - MemGraph import only
+      - for LOAD CSV column defs for nodes and edges that are be placed in the fastapi code.
+       - mg_build_individual_json.py --node-infile=rk-nodes.tab-hdr.temp_csv --edge-infile=rk-edges.tab-hdr.temp_csv --data-dir=D:/dvols/graph-eval/robokop_data/MemGraph --outfile=none --max-items=none --type=colhdr
+     - Launch the import
+       - the grap-db-val fastapi app is used to run the LOAD CSV CYPHER. it must be deployed with at least 25 CPUs and 256GB of mem for it to run efficiently.
+       - that the fastapi "create indexes" endpoint should be run first, then the "import data endpoint".

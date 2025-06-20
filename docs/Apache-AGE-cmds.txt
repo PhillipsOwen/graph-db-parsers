@@ -1,0 +1,34 @@
+
+-- loads the apache AGE funtionality
+LOAD 'age';
+
+-- sets the default path to the AGE catalog DB
+SET search_path TO ag_catalog;
+
+-- creates a graph DB
+SELECT * FROM create_graph('CTD');
+
+-- removes a graph DB
+SELECT * FROM drop_graph('CTD', true);
+
+-- gets the list of created graph DBs
+SELECT * FROM ag_graph;
+
+-- simple cypher to get the node count
+SELECT *
+FROM ag_catalog.cypher('CTD', $$
+    match (a) return count(a) as cnt
+$$) AS (cnt agtype);
+
+
+-- creates a new vertext type (node)
+SELECT create_vlabel('CTD','Node');
+SELECT create_vlabel('CTD','Edge');
+
+-- loads the graph database with data in the CSV file
+SELECT load_labels_from_file('CTD',
+                             'Country',
+                             '/omnicorp/graph-eval/AGE-db/countries.csv');
+
+-- gets the number of nodes added
+SELECT COUNT(*) FROM "CTD"."Country";

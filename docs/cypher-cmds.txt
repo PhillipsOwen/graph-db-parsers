@@ -1,0 +1,115 @@
+
+//////////////////
+// DB property view/manipulation configuration commands
+//////////////////
+SHOW STORAGE INFO;
+SHOW CONFIG;
+STORAGE MODE IN_MEMORY_TRANSACTIONAL;
+STORAGE MODE IN_MEMORY_ANALYTICAL;
+STORAGE MODE ON_DISK_TRANSACTIONAL;
+
+/////////////////
+// use these commands to start loading/clearing the DB load process
+/////////////////
+STORAGE MODE IN_MEMORY_ANALYTICAL;
+DROP graph;
+
+
+////////////////
+// import memgraph merged edge/node data files using import_util.json()
+////////////////
+CALL import_util.json("/var/log/memgraph/ctd-mg.json");
+CALL import_util.json("/var/log/memgraph/rk-mg.json");
+
+
+/////////////////
+// import memgraph individual ctd node and edge data files using json_util.load_from_path()
+/////////////////
+// only use this in disk storage mode NODE IMPORT MODE ACTIVE;
+CALL json_util.load_from_path("/var/log/memgraph/ctd-mg-nodes.json")
+//CALL json_util.load_from_path("/var/log/memgraph/rk-mg-nodes.json")
+YIELD objects
+UNWIND objects AS o
+CREATE (:Node {equivalent_identifiers:o.equivalent_identifiers, category:o.category, id:o.id, description:o.description, name:o.name, NCBITaxon:o.NCBITaxon, information_content:o.information_content});
+
+// only use this in disk storage mode EDGE IMPORT MODE ACTIVE;
+//CALL json_util.load_from_path("/var/log/memgraph/ctd-mg-edges.json.sav")
+//CALL json_util.load_from_path("/var/log/memgraph/rk-mg-edges.json")
+CALL json_util.load_from_path("/var/log/memgraph/ctd-mg-edges-10000.json")
+YIELD objects
+UNWIND objects AS o
+MATCH (a:Node {id: o.start}), (b:Node {id: o.end})
+CREATE (a)-[:Edge {start:o.start, label:o.label, end:o.end, type:o.type, id:o.id, properties:o.properties}]->(b);
+
+////////////////
+// loading CSV files
+////////////////
+
+drop graph;
+
+// load the nodes
+load csv from "/var/log/memgraph/ctd-nodes.csv" with header as row
+  create (n: Node {id: row.id, name: row.name, description: row.description, NCBITaxon: row.NCBITaxon,
+  category: split(row.category, ';'), equivalent_identifiers: split(row.equivalent_identifiers, ';')})
+  with n
+    match (n: Node)
+    set n: n.category;
+
+// create the index on the node
+create index on :Node(id);
+
+// load the edges
+//using periodic commit 10000
+load csv from "/var/log/memgraph/ctd-edges.csv" with header as row
+  // DEBUG: limit record count for testing
+  with row
+    // limit 1000
+    match (a: Node {id: row.subject}), (b: Node {id: row.object})
+    create (a)-
+      [e: row.predicate
+        {
+          agent_type: row.agent_type,
+          description: row.description,
+          knowledge_level: row.knowledge_level,
+          NCBITaxon: row.NCBITaxon,
+          object: row.object,
+          object_aspect_qualifier: row.object_aspect_qualifier,
+          object_direction_qualifier: row.object_direction_qualifier,
+          predicate: row.predicate,
+          primary_knowledge_source: row.primary_knowledge_source,
+          publications: split(row.publications, ';'),
+          qualified_predicate: row.qualified_predicate,
+          subject: row.subject
+        }
+      ]->(b);
+
+explain match (a: Node {id: "UNII:7PK6VC94OU"}) return a;
+
+////////////////
+// general purpose testing queries
+////////////////
+match (a:`biolink:Disease` {id:"MONDO:0021085"})-[x]-(b:`biolink:NamedThing`) return type(x),x.primary_knowledge_source,count(b);
+
+match (a) where a.id='CHEBI:25806' return *;
+match (a) return * limit 10;
+match (a) where a.id="UNII:7PK6VC94OU" return a;
+match (a: Node)-[e]->(b: CTDNode) return * limit 25;
+
+match (a)-[e]->(b) return e limit 1;
+
+match (a)-[e]->(b) where a.id="MONDO:0021085" return a,e,b limit 50;
+match p = (a)-[e]-(c) WHERE a.id = 'UNII:7PK6VC94OU' RETURN p.a;
+match p = (a)-[e]-(c) WHERE a.id = 'UNII:7PK6VC94OU' RETURN relationships(p);
+match (a) return count(*);
+match ()-[e]->() return count(e);
+// this crashes the UI pod: match ()-[r]->() RETURN r, properties(r);
+
+/////////////////
+// danger zone
+/////////////////
+
+// remove some number of edges with nodes
+match (a)-[e]-() with a, e limit 1350000 detach delete a, e;
+
+// remove nodes with no relationships now that the edges are gone
+match (a) where node.degree_in(a) = 0 detach delete a;

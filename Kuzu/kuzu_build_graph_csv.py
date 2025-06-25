@@ -8,6 +8,7 @@ from common.logger import LoggingUtil
 import pandas as pd
 import csv
 import pickle
+from collections import defaultdict
 
 """
 this code takes the node/edge csv files and parses them into a Kuzu DB
@@ -41,89 +42,7 @@ edge_rng = range(1, 24)
 
 # init storage for node class and edge predicate lookup data
 node_class_lookups: dict = {}
-edge_predicate_lookups: dict = {}
-
-
-def get_data_lookups(_data_dir, _infile, node_class_list, _file_type) -> dict:
-    """
-    this method bins data found in the "converted" files into node class/edge predicate files.
-
-    this method returns the node and edge columns for Kuzu DB tables.
-
-    :param _data_dir:
-    :param _infile:
-    :param node_class_list:
-    :param _file_type:
-    :return:
-    """
-
-    # specify the range of files to work
-    if _file_type == 'NODE':
-        rng = node_rng
-    elif _file_type == 'EDGE':
-        rng = edge_rng
-    else:
-        raise Exception('Unsupported file type.')
-
-    logger.debug(f"Getting {_file_type} data lookups...")
-
-    # init the return value
-    ret_val: dict = {}
-
-    # save the node and its preferred class for the edge table relationships
-    with Timer(name=_file_type, text="The {name} lookup dict created in {:.2f}s", logger=logger.debug):
-        # for each file to process
-        for i in rng:
-            # get the input file path
-            inf = os.path.join(_data_dir, _infile + str(i) + '.csv')
-
-            # done so this works in both a windows and linux environment
-            inf = str(inf).replace('\\', '/')
-
-            # open the input csv file
-            with open(inf, 'r') as file:
-                # read the csv file
-                reader = csv.reader(file)
-
-                # Skip the header
-                next(reader)
-
-                if _file_type == 'NODE':
-                    # go through each line in the file
-                    for row in reader:
-                        # get the node class
-                        node_id: str = row[0]
-
-                        node_class: str = row[2].split(',')[0][1:]
-
-                        # save this pair to the return list
-                        ret_val.update({node_id: node_class.split(':')[1]})
-
-                # save the source class/predicate/object class
-                elif _file_type == 'EDGE':
-                    edge_class_lookup: set = set()
-
-                    # go through each line in the file
-                    for row in reader:
-                        # get the class for the subject and object
-                        subject_class = node_class_list.get(row[0], None)
-                        object_class = node_class_list.get(row[1], None)
-
-                        # if we found both vertices complete/save the tuple
-                        if subject_class and object_class:
-                            # save this to a set to maintain uniqueness. the predicate is in the 4th column in the CSV file
-                            edge_class_lookup.add(tuple([row[3].split(':')[1], subject_class, object_class]))
-
-                    # get the tuple into a dict
-                    for item in edge_class_lookup:
-                        ret_val.update({item[0]: [item[1], item[2]]})
-
-    # inform the user something may be amiss
-    if len(ret_val) == 0:
-        logger.debug('Warning: No lookup data found for %s.', _file_type)
-
-    # return the dict of node id/classes or n-e-n relationships
-    return ret_val
+edge_predicate_lookups = defaultdict(set)
 
 
 def convert_data(_data_dir, _infile, _file_type) -> None:
@@ -311,7 +230,103 @@ def reorder_node_classes(node_classes: str) -> str:
     return ';'.join(class_list)
 
 
-def bin_data(_data_dir, _infile, _file_type) -> None:
+def get_data_lookups(_data_dir, _infile, node_class_list, _file_type):
+    """
+    this method bins data found in the "converted" files into node class/edge predicate files.
+
+    this method returns the node and edge columns for Kuzu DB tables.
+
+    :param _data_dir:
+    :param _infile:
+    :param node_class_list:
+    :param _file_type:
+    :return:
+    """
+
+    # specify the range of converted files to process
+    if _file_type == 'NODE':
+        rng = node_rng
+    elif _file_type == 'EDGE':
+        rng = edge_rng
+    else:
+        raise Exception('Unsupported file type.')
+
+    logger.debug(f"Getting {_file_type} data lookups...")
+
+    # save the node and its preferred class for the edge table relationships
+    with Timer(name=_file_type, text="The {name} lookup dict created in {:.2f}s", logger=logger.debug):
+        if _file_type == 'NODE':
+            # init the return value
+            ret_val: dict = {}
+
+            # for each file to process
+            for i in rng:
+                # get the input file path
+                inf = os.path.join(_data_dir, _infile + str(i) + '.csv')
+
+                # done so this works in both a windows and linux environment
+                inf = str(inf).replace('\\', '/')
+
+                # open the input csv file
+                with open(inf, 'r') as file:
+                    # read the csv file
+                    reader = csv.reader(file)
+
+                    # Skip the header
+                    next(reader)
+
+                    # go through each line in the file
+                    for row in reader:
+                        # get the node class
+                        node_id: str = row[0]
+
+                        # get the node class
+                        node_class: str = row[2].split(',')[0][1:]
+
+                    # save this pair to the return list
+                    ret_val.update({node_id: node_class.split(':')[1]})
+
+        # save the source class/predicate/object class
+        elif _file_type == 'EDGE':
+            # init the return value
+            ret_val: defaultdict = defaultdict(set)
+
+            # for each file to process
+            for i in rng:
+                # get the input file path
+                inf = os.path.join(_data_dir, _infile + str(i) + '.csv')
+
+                # done so this works in both a windows and linux environment
+                inf = str(inf).replace('\\', '/')
+
+                # open the input csv file
+                with open(inf, 'r') as file:
+                    # read the csv file
+                    reader = csv.reader(file)
+
+                    # Skip the header
+                    next(reader)
+
+                    # go through each line in the file
+                    for row in reader:
+                        # get the class for the subject and object
+                        subject_class = node_class_list.get(row[0], None)
+                        object_class = node_class_list.get(row[1], None)
+
+                        # if we found both vertices complete/save the tuple
+                        if subject_class and object_class:
+                            # save this set. note the predicate is in the 4th column in the CSV file
+                            ret_val[row[3].split(':')[1]].add((subject_class, object_class))
+
+    # inform the user something may be amiss
+    if len(ret_val) == 0:
+        logger.debug('Warning: No lookup data found for %s.', _file_type)
+
+    # return the dict of node id/classes or n-e-n relationships
+    return ret_val
+
+
+def bin_data(_data_dir, _infile, _file_type, node_class_lookup) -> None:
     """
     turns the converted files into files whose data is binned by node class and edge predicates.
 
@@ -321,6 +336,7 @@ def bin_data(_data_dir, _infile, _file_type) -> None:
     :param _data_dir:
     :param _infile:
     :param _file_type:
+    :param node_class_lookup:
     :return:
     """
     logger.debug('Binning %s data files.', _file_type)
@@ -345,6 +361,8 @@ def bin_data(_data_dir, _infile, _file_type) -> None:
             # done so this works in both a windows and linux environment
             inf = str(inf).replace('\\', '/')
 
+            logger.debug('Binning %s file', inf)
+
             # open the input csv file
             with open(inf, 'r') as file:
                 # read the csv file
@@ -352,6 +370,9 @@ def bin_data(_data_dir, _infile, _file_type) -> None:
 
                 # save the header
                 csv_hdr = next(reader)
+
+                # init the from/to target storage
+                from_to: str = ''
 
                 # go through each line in the file
                 for row in reader:
@@ -361,8 +382,17 @@ def bin_data(_data_dir, _infile, _file_type) -> None:
                         class_or_pred = row[2].split(',')[0][1:]
                         class_or_pred = class_or_pred.split(':')[1]
                     else:
-                        # get the predicate for the table name
-                        class_or_pred = row[3].split(':')[1]
+                        # get the from/to node classes
+                        subject_class = node_class_lookup.get(row[0], None)
+                        object_class = node_class_lookup.get(row[1], None)
+
+                        # make sure we get the target node classes
+                        if subject_class and object_class:
+                            # get the predicate with node classes for the file name
+                            class_or_pred = row[3].split(':')[1] + '_' + subject_class + '_' + object_class
+                        else:
+                            logger.warning('Warning: Could not get subject or object classes for %s. Continuing...', row[3].split(':')[1])
+                            continue
 
                     # get the output file path
                     out_file = os.path.join(_data_dir, _infile.replace('conv', 'bin-') + class_or_pred + '.csv')
@@ -387,7 +417,7 @@ def bin_data(_data_dir, _infile, _file_type) -> None:
                         # put the file handle in the list
                         open_files.update({out_file: [file_handle, csv_writer]})
                     else:
-                        # use the existing file
+                        # use the existing file's handle
                         csv_writer = open_files[out_file][1]
 
                         # copy the line to the new destination
@@ -424,32 +454,35 @@ def create_kuzu_tables(conn: kuzu.Connection, _data_dir, _node_file, _edge_file)
         n_cols: str = process_csv_header(_data_dir, node_header_file_name, 'NODE')
 
         # get the set of the node classes
-        node_classes: set = set(node_class_lookups.values())
+        node_classes: list = sorted(set(node_class_lookups.values()))
 
         # create a table for each node label class
         for node_class in node_classes:
             # create the tables
             conn.execute(f'CREATE NODE TABLE {node_class}({n_cols}, PRIMARY KEY (id))')
+            # logger.debug(f'CREATE NODE TABLE {node_class}({n_cols}, PRIMARY KEY (id))')
 
         # get the list of edge columns. the table header file must match the number of columns in the data
         e_cols = process_csv_header(_data_dir, edge_header_file_name, 'EDGE')
 
         # get the set of predicates
-        predicate_names = list(edge_predicate_lookups.keys())
+        predicate_types = sorted(list(edge_predicate_lookups.keys()))
 
         # for each predicate type
-        for predicate_name in predicate_names:
+        for predicate_type in predicate_types:
             # get all the relationships for this predicate
-            nodes = edge_predicate_lookups[predicate_name]
+            node_classes_by_predicate = edge_predicate_lookups[predicate_type]
 
-            # get the subject class name
-            subject_class = nodes[0]
+            # sort the node class predicates
+            node_classes_by_predicate = sorted(node_classes_by_predicate, key=lambda x: x[0])
 
-            # get the object class name
-            object_class = nodes[1]
+            # get the from/to clause
+            from_to_clause = ','.join([f'FROM {x[0]} TO {x[1]}' for x in node_classes_by_predicate])
 
             # table name may have multiple to/from node tables
-            conn.execute(f"CREATE REL TABLE {predicate_name}(FROM {subject_class} TO {object_class}, {e_cols})")
+            conn.execute(f"CREATE REL TABLE {predicate_type}({from_to_clause}, {e_cols})")
+            # logger.debug(f"CREATE REL TABLE {predicate_type}({from_to_clause}, {e_cols})")
+
     except Exception as e:
         logger.exception("Error creating node or edge tables.", e)
 
@@ -565,11 +598,11 @@ def import_data(conn: kuzu.Connection, _data_dir, _node_infile, _edge_infile) ->
     :return:
     """
     try:
-        # get the set of the node classes
-        node_classes: set = set(node_class_lookups.values())
-
         with Timer(name="nodes", text="DB nodes loaded in {:.2f}s", logger=logger.debug):
             logger.debug("Loading nodes into the database...")
+
+            # get the sorted set of the node classes
+            node_classes: list = sorted(set(node_class_lookups.values()))
 
             for node_class in node_classes:
                 # create the name of the file
@@ -587,31 +620,46 @@ def import_data(conn: kuzu.Connection, _data_dir, _node_infile, _edge_infile) ->
                 else:
                     logger.debug("Node file %s does not exist, skipping...", inf)
 
-        # get the set of predicates
-        edge_predicates = list(edge_predicate_lookups.keys())
-
         with Timer(name="edges", text="DB edges loaded in {:.2f}s", logger=logger.debug):
             logger.debug("Loading edges into the database...")
 
-            for predicate in edge_predicates:
-                # create the name of the file
-                inf = os.path.join(_data_dir, _edge_infile + predicate + '.csv')
+            # get the set of predicates
+            predicate_types = sorted(list(edge_predicate_lookups.keys()))
 
-                # fix path for windows
-                inf = str(inf).replace('\\', '/')
+            # for each predicate type
+            for predicate_type in predicate_types:
+                # get all the relationships for this predicate
+                node_classes_by_predicate = edge_predicate_lookups[predicate_type]
 
-                # check to see if the file exists
-                if os.path.exists(inf):
-                    logger.debug("Loading edge file %s into the database...", inf)
+                # sort the node class predicates
+                node_classes_by_predicate = sorted(node_classes_by_predicate, key=lambda x: x[0])
 
-                    try:
-                        # import the data file
-                        conn.execute(f'COPY {predicate} FROM "{inf}" (HEADER=true, DELIMITER=",", IGNORE_ERRORS=true);')
-                    except Exception as e:
-                        logger.exception(f"Edge import exception detected: Failed to load {predicate} edge file {inf}:")
+                # for each node subject/object class pair
+                for node_class_set in node_classes_by_predicate:
+                    # get the node classes
+                    subject_class = node_class_set[0]
+                    object_class = node_class_set[1]
 
-                else:
-                    logger.debug("Edge file %s does not exist, skipping...", inf)
+                    # create the name of the file
+                    inf = os.path.join(_data_dir, _edge_infile + predicate_type + '_' + subject_class + '_' + object_class + '.csv')
+
+                    # fix path for windows
+                    inf = str(inf).replace('\\', '/')
+
+                    # check to see if the file exists
+                    if os.path.exists(inf):
+                        logger.debug("Loading edge file %s into the database...", inf)
+
+                        try:
+                            # import the data file
+                            conn.execute(f"COPY {predicate_type} FROM '{inf}' (from='{subject_class}', to='{object_class}',HEADER=true, DELIMITER=',', IGNORE_ERRORS=true);")
+                        except Exception as e:
+                            logger.exception(
+                                f"Edge import exception detected: Failed to load {predicate_type} {subject_class} to {object_class} edge file {inf}:")
+
+                    else:
+                        logger.debug("Edge file %s does not exist, skipping...", inf)
+
     except Exception as e:
         logger.exception('Exception detected:', e)
 
@@ -646,14 +694,26 @@ if __name__ == "__main__":
     # get the path to the DB
     db_dir: str = os.path.join(args.data_dir, str(args.outfile))
 
-    # wipe the DB if we are creating Kuzu tables
+    # init the DB connection
+    connection = None
+
+    # # wipe the DB if we are creating Kuzu tables
     if run_type == "TABLES" and os.path.isdir(db_dir):
         # Delete directory each time until we have MERGE FROM available in kuzu
         shutil.rmtree(db_dir, ignore_errors=True)
 
     try:
+        if run_type == "CONVERT":
+            with Timer(name="convert", text="Node data converted in {:.2f}s", logger=logger.debug):
+                # perform node file operations
+                convert_data(args.data_dir, args.node_infile, 'NODE')
+
+            with Timer(name="convert", text="Edge data converted in {:.2f}s", logger=logger.debug):
+                # perform edge file operations
+                convert_data(args.data_dir, args.edge_infile, 'EDGE')
+
         if run_type == "CREATE_LUS":
-            # get the set of node ids and their class tuples
+            #  get the set of node ids and their class tuples
             node_class_lookups = get_data_lookups(args.data_dir, args.node_infile, None, 'NODE')
 
             # serialize the lookup data into pickle files
@@ -668,30 +728,26 @@ if __name__ == "__main__":
                 # noinspection PyTypeChecker
                 pickle.dump(edge_predicate_lookups, edge_pkl_file)
 
-        if run_type == "CONVERT":
-            with Timer(name="convert", text="Node data converted in {:.2f}s", logger=logger.debug):
-                # perform node file operations
-                convert_data(args.data_dir, args.node_infile, 'NODE')
-
-            with Timer(name="convert", text="Edge data converted in {:.2f}s", logger=logger.debug):
-                # perform edge file operations
-                convert_data(args.data_dir, args.edge_infile, 'EDGE')
-
         # create the tables if requested
         if run_type == "BIN":
             with Timer(name="bin", text="Node and edge data binned in {:.2f}s", logger=logger.debug):
                 # perform node file operations
-                bin_data(args.data_dir, args.node_infile, 'NODE')
+                bin_data(args.data_dir, args.node_infile, 'NODE', None)
+
+                # deserialize the node lookup data from the pickle file
+                with open(os.path.join(args.data_dir, "serialized_node_classes.pkl"), "rb") as node_pkl_file:
+                    node_class_lookups = pickle.load(node_pkl_file)
 
                 # perform edge file operations
-                bin_data(args.data_dir, args.edge_infile, 'EDGE')
+                bin_data(args.data_dir, args.edge_infile, 'EDGE', node_class_lookups)
 
         # create the tables if requested
         if run_type == "TABLES":
-            # serialize the lookup data into pickle files
+            # deserialize the node lookup data from the pickle file
             with open(os.path.join(args.data_dir, "serialized_node_classes.pkl"), "rb") as node_pkl_file:
                 node_class_lookups = pickle.load(node_pkl_file)
 
+            # deserialize the edge lookup data from the pickle file
             with open(os.path.join(args.data_dir, "serialized_edge_predicates.pkl"), "rb") as edge_pkl_file:
                 edge_predicate_lookups = pickle.load(edge_pkl_file)
 
@@ -705,12 +761,17 @@ if __name__ == "__main__":
                 # create new node and edge tables
                 create_kuzu_tables(connection, args.data_dir, args.node_infile, args.edge_infile)
 
+                # close the DB connection
+                connection.close()
+                connection = None
+
         # parse the data if requested
         if run_type == "IMPORT":
-            # serialize the lookup data into pickle files
+            # serialize the node lookup data from the pickle file
             with open(os.path.join(args.data_dir, "serialized_node_classes.pkl"), "rb") as node_pkl_file:
                 node_class_lookups = pickle.load(node_pkl_file)
 
+            # deserialize the edge lookup data from the pickle file
             with open(os.path.join(args.data_dir, "serialized_edge_predicates.pkl"), "rb") as edge_pkl_file:
                 edge_predicate_lookups = pickle.load(edge_pkl_file)
 
@@ -723,7 +784,15 @@ if __name__ == "__main__":
             # parse the data
             import_data(connection, args.data_dir, args.node_infile, args.edge_infile)
 
+            # close the DB connection
+            connection.close()
+            connection = None
+
     except Exception as e:
         logger.exception(f'Exception parsing')
+    finally:
+        # close the DB connection if it is open
+        if connection:
+            connection.close()
 
     logger.debug('Processing complete.')

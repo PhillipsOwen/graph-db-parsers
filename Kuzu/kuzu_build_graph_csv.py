@@ -121,54 +121,6 @@ def convert_data(_data_dir, _infile, _file_type) -> None:
                 # define the target int32 columns (none for CTD data)
                 reformat_int32_cols: list = ['distance_to_feature']
 
-                # RK data testing only - define the edge columns to delete (none for CTD data)
-
-                # starts deletion at the 6th column. match table creation with the rk-edges.tab-hdr-5cols.temp_csv file
-                # reformat_del_cols: list = ['agent_type','snpeff_effect','distance_to_feature','publications','p_value','ligand','protein',
-                #                            'affinity_parameter','supporting_affinities','affinity','object_aspect_qualifier','object_direction_qualifier',
-                #                            'qualified_predicate','Coexpression','Coexpression_transferred','Experiments','Experiments_transferred',
-                #                            'Database','Database_transferred','Textmining','Textmining_transferred','Cooccurance','Combined_score',
-                #                            'species_context_qualifier','hetio_source','tmkp_confidence_score','sentences','tmkp_ids','detection_method',
-                #                            'Homology','expressed_in','slope','pubchem_assay_ids','patent_ids','aggregator_knowledge_source','id',
-                #                            'original_subject','category','provided_by','disease_context_qualifier','frequency_qualifier','has_evidence',
-                #                            'negated','original_object','score','FAERS_llr','description','NCBITaxon','Fusion','has_count','has_percentage',
-                #                            'has_quotient','has_total','qualifiers','stage_qualifier','primaryTarget','endogenous','anatomical_context_qualifier',
-                #                            'phosphorylation_sites','onset_qualifier','object_specialization_qualifier','drugmechdb_path_id','complex_context',
-                #                            'sex_qualifier','object_part_qualifier','subject_part_qualifier']
-
-                # starts deletion at the 16th column. match table creation with the rk-edges.tab-hdr-15cols.temp_csv file
-                # reformat_del_cols: list = ['object_aspect_qualifier', 'object_direction_qualifier', 'qualified_predicate', 'Coexpression',
-                #                            'Coexpression_transferred', 'Experiments', 'Experiments_transferred', 'Database', 'Database_transferred',
-                #                            'Textmining', 'Textmining_transferred', 'Cooccurance', 'Combined_score', 'species_context_qualifier',
-                #                            'hetio_source', 'tmkp_confidence_score', 'sentences', 'tmkp_ids', 'detection_method', 'Homology',
-                #                            'expressed_in', 'slope', 'pubchem_assay_ids', 'patent_ids', 'aggregator_knowledge_source', 'id',
-                #                            'original_subject', 'category', 'provided_by', 'disease_context_qualifier', 'frequency_qualifier',
-                #                            'has_evidence', 'negated', 'original_object', 'score', 'FAERS_llr', 'description', 'NCBITaxon', 'Fusion',
-                #                            'has_count', 'has_percentage', 'has_quotient', 'has_total', 'qualifiers', 'stage_qualifier',
-                #                            'primaryTarget', 'endogenous', 'anatomical_context_qualifier', 'phosphorylation_sites',
-                #                            'onset_qualifier', 'object_specialization_qualifier', 'drugmechdb_path_id', 'complex_context',
-                #                            'sex_qualifier', 'object_part_qualifier', 'subject_part_qualifier']
-
-                # starts deletion at the 21st column. match table creation with the rk-edges.tab-hdr-20cols.temp_csv file
-                # reformat_del_cols: list = ['Experiments', 'Experiments_transferred', 'Database', 'Database_transferred',
-                #                            'Textmining', 'Textmining_transferred', 'Cooccurance', 'Combined_score', 'species_context_qualifier',
-                #                            'hetio_source', 'tmkp_confidence_score', 'sentences', 'tmkp_ids', 'detection_method', 'Homology',
-                #                            'expressed_in', 'slope', 'pubchem_assay_ids', 'patent_ids', 'aggregator_knowledge_source', 'id',
-                #                            'original_subject', 'category', 'provided_by', 'disease_context_qualifier', 'frequency_qualifier',
-                #                            'has_evidence', 'negated', 'original_object', 'score', 'FAERS_llr', 'description', 'NCBITaxon', 'Fusion',
-                #                            'has_count', 'has_percentage', 'has_quotient', 'has_total', 'qualifiers', 'stage_qualifier',
-                #                            'primaryTarget', 'endogenous', 'anatomical_context_qualifier', 'phosphorylation_sites',
-                #                            'onset_qualifier', 'object_specialization_qualifier', 'drugmechdb_path_id', 'complex_context',
-                #                            'sex_qualifier', 'object_part_qualifier', 'subject_part_qualifier']
-
-                # starts deletion at the 41st column. match table creation with the rk-edges.tab-hdr-40cols.temp_csv file
-                # reformat_del_cols: list = ['id', 'original_subject', 'category', 'provided_by', 'disease_context_qualifier', 'frequency_qualifier',
-                #                            'has_evidence', 'negated', 'original_object', 'score', 'FAERS_llr', 'description', 'NCBITaxon', 'Fusion',
-                #                            'has_count', 'has_percentage', 'has_quotient', 'has_total', 'qualifiers', 'stage_qualifier',
-                #                            'primaryTarget', 'endogenous', 'anatomical_context_qualifier', 'phosphorylation_sites',
-                #                            'onset_qualifier', 'object_specialization_qualifier', 'drugmechdb_path_id', 'complex_context',
-                #                            'sex_qualifier', 'object_part_qualifier', 'subject_part_qualifier']
-
                 # duplicate the subject and object columns into the from and to columns.
                 # it is a Kuzu requirement that the first 2 columns be from and to.
                 df.insert(loc=0, column='to', value=df['object'])
@@ -281,10 +233,10 @@ def get_data_lookups(_data_dir, _infile, node_class_list, _file_type):
                         node_id: str = row[0]
 
                         # get the node class
-                        node_class: str = row[2].split(',')[0][1:]
+                        node_class: str = row[3].split(';')[0][1:]
 
-                    # save this pair to the return list
-                    ret_val.update({node_id: node_class.split(':')[1]})
+                        # save this pair to the return list
+                        ret_val.update({node_id: node_class.split(':')[1]})
 
         # save the source class/predicate/object class
         elif _file_type == 'EDGE':
@@ -459,7 +411,7 @@ def create_kuzu_tables(conn: kuzu.Connection, _data_dir, _node_file, _edge_file)
         # create a table for each node label class
         for node_class in node_classes:
             # create the tables
-            conn.execute(f'CREATE NODE TABLE {node_class}({n_cols}, PRIMARY KEY (id))')
+            conn.execute(f'CREATE NODE TABLE `biolink:{node_class}`({n_cols}, PRIMARY KEY (id))')
             # logger.debug(f'CREATE NODE TABLE {node_class}({n_cols}, PRIMARY KEY (id))')
 
         # get the list of edge columns. the table header file must match the number of columns in the data
@@ -477,10 +429,10 @@ def create_kuzu_tables(conn: kuzu.Connection, _data_dir, _node_file, _edge_file)
             node_classes_by_predicate = sorted(node_classes_by_predicate, key=lambda x: x[0])
 
             # get the from/to clause
-            from_to_clause = ','.join([f'FROM {x[0]} TO {x[1]}' for x in node_classes_by_predicate])
+            from_to_clause = ','.join([f'FROM `biolink:{x[0]}` TO `biolink:{x[1]}`' for x in node_classes_by_predicate])
 
             # table name may have multiple to/from node tables
-            conn.execute(f"CREATE REL TABLE {predicate_type}({from_to_clause}, {e_cols})")
+            conn.execute(f'CREATE REL TABLE `biolink:{predicate_type}`({from_to_clause}, {e_cols})')
             # logger.debug(f"CREATE REL TABLE {predicate_type}({from_to_clause}, {e_cols})")
 
     except Exception as e:
@@ -616,7 +568,7 @@ def import_data(conn: kuzu.Connection, _data_dir, _node_infile, _edge_infile) ->
                     logger.debug("Loading node file %s into the database...", inf)
 
                     # import the data file
-                    conn.execute(f'COPY {node_class} FROM "{inf}" (HEADER=true, DELIMITER=",", IGNORE_ERRORS=false);')
+                    conn.execute(f'COPY `biolink:{node_class}` FROM "{inf}" (HEADER=true, DELIMITER=",", IGNORE_ERRORS=false);')
                 else:
                     logger.debug("Node file %s does not exist, skipping...", inf)
 
@@ -652,7 +604,7 @@ def import_data(conn: kuzu.Connection, _data_dir, _node_infile, _edge_infile) ->
 
                         try:
                             # import the data file
-                            conn.execute(f"COPY {predicate_type} FROM '{inf}' (from='{subject_class}', to='{object_class}',HEADER=true, DELIMITER=',', IGNORE_ERRORS=true);")
+                            conn.execute(f"COPY `biolink:{predicate_type}` FROM '{inf}' (from='biolink:{subject_class}', to='biolink:{object_class}', HEADER=true, DELIMITER=',', IGNORE_ERRORS=true);")
                         except Exception as e:
                             logger.exception(
                                 f"Edge import exception detected: Failed to load {predicate_type} {subject_class} to {object_class} edge file {inf}:")
@@ -676,7 +628,7 @@ if __name__ == "__main__":
     fastapi pod command line:
     cd /logs
            
-    python3 --node-infile=rk-nodes-pt20.csv --edge-infile=rk-edges-pt23.csv --data-dir=D:/dvols/graph-eval/robokop_data/kuzu 
+    python3 --node-infile=rk-nodes-pt20.csv --edge-infile=rk-edges-pt23.csv --data-dir=D:/dvols/graph-eval/robokop_data/kuzu
     --outfile=rk-kuzu-db --type=data
     """
     parser = argparse.ArgumentParser()
@@ -697,40 +649,39 @@ if __name__ == "__main__":
     # init the DB connection
     connection = None
 
-    # # wipe the DB if we are creating Kuzu tables
-    if run_type == "TABLES" and os.path.isdir(db_dir):
-        # Delete directory each time until we have MERGE FROM available in kuzu
-        shutil.rmtree(db_dir, ignore_errors=True)
-
     try:
+        # converts the data into something kuzu can use
         if run_type == "CONVERT":
-            with Timer(name="convert", text="Node data converted in {:.2f}s", logger=logger.debug):
-                # perform node file operations
-                convert_data(args.data_dir, args.node_infile, 'NODE')
+            with Timer(name="Convert data", text="Node and edge data converted in {:.2f}s", logger=logger.debug):
+                with Timer(name="convert nodes", text="Node data converted in {:.2f}s", logger=logger.debug):
+                    # perform node file operations
+                    convert_data(args.data_dir, args.node_infile, 'NODE')
 
-            with Timer(name="convert", text="Edge data converted in {:.2f}s", logger=logger.debug):
-                # perform edge file operations
-                convert_data(args.data_dir, args.edge_infile, 'EDGE')
+                with Timer(name="convert edges", text="Edge data converted in {:.2f}s", logger=logger.debug):
+                    # perform edge file operations
+                    convert_data(args.data_dir, args.edge_infile, 'EDGE')
 
+        # create data lookup dicts
         if run_type == "CREATE_LUS":
-            #  get the set of node ids and their class tuples
-            node_class_lookups = get_data_lookups(args.data_dir, args.node_infile, None, 'NODE')
+            with Timer(name="Create lookups", text="Node and edge lookups created in {:.2f}s", logger=logger.debug):
+                #  get the set of node ids and their class tuples
+                node_class_lookups = get_data_lookups(args.data_dir, args.node_infile, None, 'NODE')
 
-            # serialize the lookup data into pickle files
-            with open(os.path.join(args.data_dir, "serialized_node_classes.pkl"), "wb") as node_pkl_file:
-                # noinspection PyTypeChecker
-                pickle.dump(node_class_lookups, node_pkl_file)
+                # serialize the lookup data into pickle files
+                with open(os.path.join(args.data_dir, "serialized_node_classes.pkl"), "wb") as node_pkl_file:
+                    # noinspection PyTypeChecker
+                    pickle.dump(node_class_lookups, node_pkl_file)
 
-            # get the set of subject class - edge predicate - object class tuples
-            edge_predicate_lookups = get_data_lookups(args.data_dir, args.edge_infile, node_class_lookups, 'EDGE')
+                # get the set of subject class - edge predicate - object class tuples
+                edge_predicate_lookups = get_data_lookups(args.data_dir, args.edge_infile, node_class_lookups, 'EDGE')
 
-            with open(os.path.join(args.data_dir, "serialized_edge_predicates.pkl"), "wb") as edge_pkl_file:
-                # noinspection PyTypeChecker
-                pickle.dump(edge_predicate_lookups, edge_pkl_file)
+                with open(os.path.join(args.data_dir, "serialized_edge_predicates.pkl"), "wb") as edge_pkl_file:
+                    # noinspection PyTypeChecker
+                    pickle.dump(edge_predicate_lookups, edge_pkl_file)
 
         # create the tables if requested
         if run_type == "BIN":
-            with Timer(name="bin", text="Node and edge data binned in {:.2f}s", logger=logger.debug):
+            with Timer(name="Bin data", text="Node and edge data binned in {:.2f}s", logger=logger.debug):
                 # perform node file operations
                 bin_data(args.data_dir, args.node_infile, 'NODE', None)
 
@@ -742,16 +693,19 @@ if __name__ == "__main__":
                 bin_data(args.data_dir, args.edge_infile, 'EDGE', node_class_lookups)
 
         # create the tables if requested
-        if run_type == "TABLES":
-            # deserialize the node lookup data from the pickle file
-            with open(os.path.join(args.data_dir, "serialized_node_classes.pkl"), "rb") as node_pkl_file:
-                node_class_lookups = pickle.load(node_pkl_file)
+        if run_type == "CREATE_TABLES":
+            with Timer(name="Create tables", text="Table definitions created in {:.2f}s", logger=logger.debug):
+                # deserialize the node lookup data from the pickle file
+                with open(os.path.join(args.data_dir, "serialized_node_classes.pkl"), "rb") as node_pkl_file:
+                    node_class_lookups = pickle.load(node_pkl_file)
 
-            # deserialize the edge lookup data from the pickle file
-            with open(os.path.join(args.data_dir, "serialized_edge_predicates.pkl"), "rb") as edge_pkl_file:
-                edge_predicate_lookups = pickle.load(edge_pkl_file)
+                # deserialize the edge lookup data from the pickle file
+                with open(os.path.join(args.data_dir, "serialized_edge_predicates.pkl"), "rb") as edge_pkl_file:
+                    edge_predicate_lookups = pickle.load(edge_pkl_file)
 
-            with Timer(name="Tables", text="Table definitions created in {:.2f}s", logger=logger.debug):
+                # wipe the DB if we are creating new tables
+                shutil.rmtree(db_dir, ignore_errors=True)
+
                 # Create the database
                 db = kuzu.Database(db_dir, max_db_size=274877906944)
 
@@ -767,26 +721,27 @@ if __name__ == "__main__":
 
         # parse the data if requested
         if run_type == "IMPORT":
-            # serialize the node lookup data from the pickle file
-            with open(os.path.join(args.data_dir, "serialized_node_classes.pkl"), "rb") as node_pkl_file:
-                node_class_lookups = pickle.load(node_pkl_file)
+            with Timer(name="Import data", text="Data imported in {:.2f}s", logger=logger.debug):
+                # serialize the node lookup data from the pickle file
+                with open(os.path.join(args.data_dir, "serialized_node_classes.pkl"), "rb") as node_pkl_file:
+                    node_class_lookups = pickle.load(node_pkl_file)
 
-            # deserialize the edge lookup data from the pickle file
-            with open(os.path.join(args.data_dir, "serialized_edge_predicates.pkl"), "rb") as edge_pkl_file:
-                edge_predicate_lookups = pickle.load(edge_pkl_file)
+                # deserialize the edge lookup data from the pickle file
+                with open(os.path.join(args.data_dir, "serialized_edge_predicates.pkl"), "rb") as edge_pkl_file:
+                    edge_predicate_lookups = pickle.load(edge_pkl_file)
 
-            # Create the database
-            db = kuzu.Database(db_dir, max_db_size=274877906944)
+                # Create the database
+                db = kuzu.Database(db_dir, max_db_size=274877906944)
 
-            # get a DB connection
-            connection = kuzu.Connection(db)
+                # get a DB connection
+                connection = kuzu.Connection(db)
 
-            # parse the data
-            import_data(connection, args.data_dir, args.node_infile, args.edge_infile)
+                # parse the data
+                import_data(connection, args.data_dir, args.node_infile, args.edge_infile)
 
-            # close the DB connection
-            connection.close()
-            connection = None
+                # close the DB connection
+                connection.close()
+                connection = None
 
     except Exception as e:
         logger.exception(f'Exception parsing')

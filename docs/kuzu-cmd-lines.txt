@@ -27,6 +27,8 @@ packing/unpacking archived directories
    - /projects/omnicorp/graph-eval
  - cd to the working directory (/database/graph-eval)
  - create archive: tar -cvzf <file_name> ./common/rk-data/<sub-data-directory>/
+   - it may be advantageous to copy a subset of files to another directory first and remove it after the operation
+   - e.g., mkdir temp && cp *-bin-*.csv ./bin_data && tar -cvzf rk-kuzu-bin-data.tar.gz ./bin_data && rm -rf ./bin_data
  - extract archive:
    - cd to a target temp directory under common
    - tar -xvzf /<path-to-the>/<file name>.tar.gz

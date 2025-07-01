@@ -1,0 +1,16 @@
+# SPDX-FileCopyrightText: 2022 Renaissance Computing Institute. All rights reserved.
+# SPDX-FileCopyrightText: 2023 Renaissance Computing Institute. All rights reserved.
+# SPDX-FileCopyrightText: 2024 Renaissance Computing Institute. All rights reserved.
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+# SPDX-License-Identifier: LicenseRef-RENCI
+# SPDX-License-Identifier: MIT
+
+pydantic==2.10.6
+fastapi==0.115.11
+uvicorn==0.34.0
+psycopg2-binary==2.9.10
+codetiming==.4.0
+kuzu==0.10.0
+neo4j==5.28.1
+pandas==2.2.3

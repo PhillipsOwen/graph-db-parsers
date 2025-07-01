@@ -343,7 +343,7 @@ def bin_data(_data_dir, _infile, _file_type, node_class_lookup) -> None:
                             # get the predicate with node classes for the file name
                             class_or_pred = row[3].split(':')[1] + '_' + subject_class + '_' + object_class
                         else:
-                            logger.warning('Warning: Could not get subject or object classes for %s. Continuing...', row[3].split(':')[1])
+                            logger.warning('Warning: Could not get subject or object classes for %s or %s. Continuing...', row[4], row[6])
                             continue
 
                     # get the output file path

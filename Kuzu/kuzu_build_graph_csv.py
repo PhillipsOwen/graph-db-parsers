@@ -233,7 +233,7 @@ def get_data_lookups(_data_dir, _infile, node_class_list, _file_type):
                         node_id: str = row[0]
 
                         # get the node class
-                        node_class: str = row[3].split(';')[0][1:]
+                        node_class: str = row[2].split(',')[0][1:]
 
                         # save this pair to the return list
                         ret_val.update({node_id: node_class.split(':')[1]})
@@ -667,13 +667,13 @@ if __name__ == "__main__":
                 #  get the set of node ids and their class tuples
                 node_class_lookups = get_data_lookups(args.data_dir, args.node_infile, None, 'NODE')
 
+                # get the set of subject class - edge predicate - object class tuples
+                edge_predicate_lookups = get_data_lookups(args.data_dir, args.edge_infile, node_class_lookups, 'EDGE')
+
                 # serialize the lookup data into pickle files
                 with open(os.path.join(args.data_dir, "serialized_node_classes.pkl"), "wb") as node_pkl_file:
                     # noinspection PyTypeChecker
                     pickle.dump(node_class_lookups, node_pkl_file)
-
-                # get the set of subject class - edge predicate - object class tuples
-                edge_predicate_lookups = get_data_lookups(args.data_dir, args.edge_infile, node_class_lookups, 'EDGE')
 
                 with open(os.path.join(args.data_dir, "serialized_edge_predicates.pkl"), "wb") as edge_pkl_file:
                     # noinspection PyTypeChecker

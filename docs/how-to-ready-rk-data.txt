@@ -30,11 +30,15 @@ tab and comma delimited headers
 
  - MemGraph data preparation and loading
    - LOAD CSV CYPHER is used to define and load the data files.
-   - LOAD CSV Column defs for nodes and edges are generated and be placed in the fastapi code for execution.
+   - LOAD CSV Column defs for nodes and edges are generated and placed in the fastapi source code for execution.
      - mg_build_individual_json.py --node-infile=rk-nodes.tab-hdr.temp_csv --edge-infile=rk-edges.tab-hdr.temp_csv --data-dir=D:/dvols/graph-eval/robokop_data/MemGraph --outfile=none --max-items=none --type=colhdr
+     - the fastapi endpoints are used:
+       - /make_mg_indexes - makes MG Indexes
+       - /run_mg_data_load_query - runs the LOAD CSV CYPHER
+     - the fastapi app will need to have a new docker image deployed to k8s if there are any changes to data created by mg_build_individual_json.py.
    - Launch the import
-     - the grap-db-val fastapi app is used to run the LOAD CSV CYPHER. it must be deployed with at least 25 CPUs and 256GB of mem for it to run effectively.
-     - that the fastapi "create indexes" endpoint should be run first, then the "import data endpoint."
+     - the grap-db-eval fastapi app is used to run the LOAD CSV CYPHER. it must be deployed with at least 25 CPUs and 256GB of mem for it to run effectively.
+     - note that the fastapi "create indexes" endpoint should be run first, then the "import data endpoint."
 
  - Kuzu data preparation and loading
    - Uses the data same split data noted above.
@@ -49,7 +53,7 @@ tab and comma delimited headers
        - python kuzu_build_graph_csv.py --node-infile=rk-nodes-conv --edge-infile=rk-edges-conv --data-dir=/database/graph-eval --outfile=rk-kuzu-db --type=bin
 
      - Step 4: create the Kuzu DB tables (many are created). this step requires the serialized_edge_predicates.pkl and serialized_node_classes.pkl lookup tables.
-       - python kuzu_build_graph_csv.py --node-infile=rk-nodes.tab-hdr.temp_csv --edge-infile=rk-edges.tab-hdr.temp_csv --data-dir=/database/graph-eval --outfile=rk-kuzu-db --type=tables
+       - python kuzu_build_graph_csv.py --node-infile=rk-nodes.tab-hdr.temp_csv --edge-infile=rk-edges.tab-hdr.temp_csv --data-dir=/database/graph-eval --outfile=rk-kuzu-db --type=create_tables
 
      - Step 5: import the CSV file data. this step requires the rk-nodes-bin<name>.csv files
        - python kuzu_build_graph_csv.py --node-infile=rk-nodes-bin- --edge-infile=rk-edges-bin- --data-dir=/database/graph-eval --outfile=rk-kuzu-db --type=import
